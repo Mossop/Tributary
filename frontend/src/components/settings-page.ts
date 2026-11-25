@@ -254,8 +254,18 @@ export class SettingsPage extends LitElement {
     </wa-button>`;
   }
 
+  private renderAccountIcon(provider: AccountProvider | undefined) {
+    if (!provider) {
+      return html`<wa-icon class="icon" name="account_circle"></wa-icon>`;
+    }
+    let icon = parseIcon(provider.icon);
+    return "symbol" in icon
+      ? html`<wa-icon class="icon" name=${icon.symbol}></wa-icon>`
+      : html`<img class="icon" src=${icon.url} alt="" />`;
+  }
+
   private renderAccounts() {
-    let providerNames = new Map(this.providers.map((p) => [p.id, p.name]));
+    let providers = new Map(this.providers.map((p) => [p.id, p]));
     return html`<section>
       <div class="section-header">
         <h2>Accounts</h2>
@@ -271,18 +281,23 @@ export class SettingsPage extends LitElement {
       ${this.accounts.map(
         (account) =>
           html`<div class="row">
-            <wa-icon class="icon" name="account_circle"></wa-icon>
+            ${this.renderAccountIcon(providers.get(account.provider))}
             <div class="main">
               <div class="title">${account.name}</div>
               <div class="meta">
-                ${providerNames.get(account.provider) ?? account.provider}
+                ${providers.get(account.provider)?.name ?? account.provider}
               </div>
               ${
-                account.missing_scopes
+                account.revoked
                   ? html`<div class="meta warning">
-                      Needs reconnecting to give access to every source type.
+                      Access was revoked or has expired. Reconnect it to keep
+                      its sources working.
                     </div>`
-                  : nothing
+                  : account.missing_scopes
+                    ? html`<div class="meta warning">
+                        Needs reconnecting to give access to every source type.
+                      </div>`
+                    : nothing
               }
             </div>
             <wa-button

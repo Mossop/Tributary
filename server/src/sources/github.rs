@@ -216,6 +216,7 @@ impl Issue {
             modified: self.updated_at,
             description: Some(description),
             due: None,
+            actions: Vec::new(),
         }
     }
 }

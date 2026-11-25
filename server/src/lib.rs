@@ -15,7 +15,7 @@ use crate::events::Events;
 use crate::google::GoogleClient;
 use crate::scheduler::{Schedule, SourceHandle};
 use crate::settings::SourceRecord;
-use crate::sources::{Registry, SourceContext};
+use crate::sources::{Registry, Source, SourceContext};
 
 pub mod accounts;
 pub mod activity;
@@ -32,6 +32,7 @@ pub mod sources;
 #[derive(Clone)]
 pub struct RunningSource {
     pub icon: String,
+    pub source: Arc<dyn Source>,
     pub handle: SourceHandle,
 }
 
@@ -67,11 +68,12 @@ impl Workspace {
             .google
             .clone()
             .map(|google| GoogleClient::new(google, &config.server.public_url));
-        let accounts = Arc::new(Accounts::new(pool.clone(), google));
+        let events = events::channel();
+        let accounts = Arc::new(Accounts::new(pool.clone(), google, events.clone()));
         let workspace = Arc::new(Self {
             config,
             pool,
-            events: events::channel(),
+            events,
             activity,
             registry,
             accounts,
@@ -117,6 +119,7 @@ impl Workspace {
             Ok(source) => {
                 let running = RunningSource {
                     icon: source.icon(),
+                    source: source.clone(),
                     handle: scheduler::spawn(
                         Schedule {
                             source_id: record.id.clone(),

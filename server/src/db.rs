@@ -8,7 +8,7 @@ use serde::Serialize;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{FromRow, SqlitePool};
 
-use crate::sources::SourceItem;
+use crate::sources::{QuickAction, SourceItem};
 
 pub async fn connect(path: &Path) -> anyhow::Result<SqlitePool> {
     if let Some(parent) = path.parent() {
@@ -59,6 +59,7 @@ pub struct Item {
     pub due_override: Option<DateTime<Utc>>,
     pub snoozed_until: Option<DateTime<Utc>>,
     pub snoozed_forever: bool,
+    pub actions: Vec<QuickAction>,
 }
 
 #[derive(FromRow)]
@@ -74,6 +75,7 @@ struct ItemRow {
     due_override: Option<i64>,
     snoozed_until: Option<i64>,
     snoozed_forever: bool,
+    actions: String,
 }
 
 impl From<ItemRow> for Item {
@@ -90,8 +92,13 @@ impl From<ItemRow> for Item {
             due_override: row.due_override.map(from_ms),
             snoozed_until: row.snoozed_until.map(from_ms),
             snoozed_forever: row.snoozed_forever,
+            actions: parse_actions(&row.actions),
         }
     }
+}
+
+fn parse_actions(json: &str) -> Vec<QuickAction> {
+    serde_json::from_str(json).unwrap_or_default()
 }
 
 /// Which items to list.
@@ -119,7 +126,7 @@ pub async fn list_items(
         r#"
         SELECT i.source_id, i.item_id, i.title, i.url, i.icon, i.description,
                i.modified, i.due, s.due_override, s.snoozed_until,
-               COALESCE(s.snoozed_forever, 0) AS snoozed_forever
+               COALESCE(s.snoozed_forever, 0) AS snoozed_forever, i.actions
         FROM items i
         LEFT JOIN item_state s ON s.source_id = i.source_id AND s.item_id = i.item_id
         WHERE i.source_id IN (SELECT value FROM json_each(?1))
@@ -149,6 +156,21 @@ pub async fn item_exists(pool: &SqlitePool, source_id: &str, item_id: &str) -> s
     Ok(row.is_some())
 }
 
+/// The quick actions a stored item offers, or None if there is no such item.
+pub async fn item_actions(
+    pool: &SqlitePool,
+    source_id: &str,
+    item_id: &str,
+) -> sqlx::Result<Option<Vec<QuickAction>>> {
+    let actions: Option<String> =
+        sqlx::query_scalar("SELECT actions FROM items WHERE source_id = ?1 AND item_id = ?2")
+            .bind(source_id)
+            .bind(item_id)
+            .fetch_optional(pool)
+            .await?;
+    Ok(actions.as_deref().map(parse_actions))
+}
+
 /// Replaces all stored items for a source and records a successful fetch.
 pub async fn replace_items(
     pool: &SqlitePool,
@@ -165,8 +187,8 @@ pub async fn replace_items(
         sqlx::query(
             r#"
             INSERT OR REPLACE INTO items
-                (source_id, item_id, title, url, icon, description, modified, due)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                (source_id, item_id, title, url, icon, description, modified, due, actions)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
         )
         .bind(source_id)
@@ -177,6 +199,7 @@ pub async fn replace_items(
         .bind(&item.description)
         .bind(to_ms(item.modified))
         .bind(item.due.map(to_ms))
+        .bind(serde_json::to_string(&item.actions).expect("actions serialize"))
         .execute(&mut *tx)
         .await?;
     }
@@ -338,6 +361,7 @@ mod tests {
             modified: time(modified),
             description: None,
             due: due.map(time),
+            actions: Vec::new(),
         }
     }
 
@@ -348,6 +372,35 @@ mod tests {
             .into_iter()
             .map(|i| format!("{}/{}", i.source_id, i.id))
             .collect()
+    }
+
+    #[tokio::test]
+    async fn stores_quick_actions() {
+        let pool = connect_in_memory().await.unwrap();
+        let action = QuickAction {
+            id: "complete".into(),
+            label: "Mark complete".into(),
+            icon: "symbol:check_circle".into(),
+        };
+        let with_action = SourceItem {
+            actions: vec![action.clone()],
+            ..item("1", 1, None)
+        };
+        replace_items(&pool, "a", &[with_action, item("2", 2, None)], time(1))
+            .await
+            .unwrap();
+
+        let items = list_items(&pool, &["a"], Filter::Active, time(1))
+            .await
+            .unwrap();
+        assert_eq!(items[0].actions, std::slice::from_ref(&action));
+        assert!(items[1].actions.is_empty());
+        assert_eq!(
+            item_actions(&pool, "a", "1").await.unwrap(),
+            Some(vec![action])
+        );
+        assert_eq!(item_actions(&pool, "a", "2").await.unwrap(), Some(vec![]));
+        assert_eq!(item_actions(&pool, "a", "3").await.unwrap(), None);
     }
 
     #[tokio::test]

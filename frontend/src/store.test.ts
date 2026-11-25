@@ -20,11 +20,17 @@ let accounts: Account[] = [
     provider: "google",
     name: "me@example.com",
     missing_scopes: false,
+    revoked: false,
   },
 ];
 
 let providers: AccountProvider[] = [
-  { id: "google", name: "Google", configured: true },
+  {
+    id: "google",
+    name: "Google",
+    icon: "https://example.com/google.png",
+    configured: true,
+  },
 ];
 
 let work: Route = { view: "items", context: "work" };
@@ -129,6 +135,43 @@ describe("Store", () => {
     expect(calls).toEqual([]);
   });
 
+  it("performs quick actions, marking the item busy", async () => {
+    routes();
+    await store.start(work);
+    let item = makeItem({ source_id: "gh", id: "inbox/t1" });
+
+    let calls = routes();
+    let done = store.performAction(item, "complete");
+    expect(store.state.busy).toEqual(["gh/inbox/t1"]);
+    await done;
+    expect(store.state.busy).toEqual([]);
+    let requests = calls.map((c) => `${c.method} ${c.url}`);
+    expect(requests).toEqual([
+      "POST /api/items/gh/inbox%2Ft1/actions/complete",
+      "GET /api/contexts/work/items",
+    ]);
+  });
+
+  it("reports failed quick actions", async () => {
+    routes();
+    await store.start(work);
+    let calls = routes({
+      "POST /api/items/gh/1/actions/complete": new Response(
+        JSON.stringify({ error: "insufficient scopes" }),
+        { status: 502 },
+      ),
+    });
+    await store.performAction(
+      makeItem({ source_id: "gh", id: "1" }),
+      "complete",
+    );
+    expect(store.state.error).toBe("insufficient scopes");
+    expect(store.state.busy).toEqual([]);
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      "POST /api/items/gh/1/actions/complete",
+    ]);
+  });
+
   it("snoozes and reloads", async () => {
     let calls = routes();
     await store.start(work);
@@ -139,6 +182,55 @@ describe("Store", () => {
       "PUT /api/items/gh/owner%2Frepo%231/snooze",
       "GET /api/contexts/work/items",
     ]);
+  });
+
+  it("keeps the error when a change fails", async () => {
+    routes();
+    await store.start(work);
+    let calls = routes({
+      "PUT /api/items/gh/owner%2Frepo%231/snooze": new Response(
+        JSON.stringify({ error: "unknown item" }),
+        { status: 404 },
+      ),
+    });
+    await store.snooze(makeItem(), null);
+    expect(store.state.error).toBe("unknown item");
+    // Reloading would have cleared the error.
+    expect(calls.map((c) => c.method)).toEqual(["PUT"]);
+  });
+
+  it("flags failing sources for attention in settings", async () => {
+    routes();
+    await store.start(work);
+    expect(store.settingsAttention()).toBeNull();
+
+    let failing = makeSource({
+      id: "other",
+      contexts: ["home"],
+      status: { last_attempt: null, last_success: null, last_error: "403" },
+    });
+    routes({ "GET /api/sources": [makeSource(), failing] });
+    await store.loadSettings();
+    expect(store.settingsAttention()).toBe("A source couldn't update");
+
+    routes({
+      "GET /api/sources": [makeSource(), failing],
+      "GET /api/accounts": [{ ...accounts[0], revoked: true }],
+    });
+    await store.loadSettings();
+    expect(store.settingsAttention()).toBe("An account needs reconnecting");
+  });
+
+  it("knows when accounts need reconnecting", async () => {
+    routes();
+    await store.start(work);
+    expect(store.accountsNeedReconnecting()).toBe(false);
+
+    for (let change of [{ missing_scopes: true }, { revoked: true }]) {
+      routes({ "GET /api/accounts": [{ ...accounts[0], ...change }] });
+      await store.loadSettings();
+      expect(store.accountsNeedReconnecting()).toBe(true);
+    }
   });
 
   it("reports errors", async () => {

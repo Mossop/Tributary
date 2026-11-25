@@ -132,7 +132,13 @@ let tasks: SourceType = {
 };
 
 function account(id: string, provider = "google"): Account {
-  return { id, provider, name: `${id}@example.com`, missing_scopes: false };
+  return {
+    id,
+    provider,
+    name: `${id}@example.com`,
+    missing_scopes: false,
+    revoked: false,
+  };
 }
 
 describe("accounts", () => {

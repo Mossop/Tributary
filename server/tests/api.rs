@@ -10,7 +10,7 @@ use http_body_util::BodyExt;
 use serde_json::json;
 use tower::ServiceExt;
 
-use common::{TestApp, item, start, start_with, time, wait_for};
+use common::{TestApp, item, item_with_action, start, start_with, time, wait_for};
 
 /// Contexts `work` and `home`; source `a` in work and `b` in both.
 async fn setup() -> TestApp {
@@ -76,6 +76,7 @@ async fn items_are_filtered_by_context_and_sorted() {
             "due_override": null,
             "snoozed_until": null,
             "snoozed_forever": false,
+            "actions": [],
         })
     );
 }
@@ -335,4 +336,83 @@ async fn serves_frontend_with_fallback() {
     let (status, body) = app.request(Method::GET, "/c/work", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, "<p>index</p>");
+}
+
+#[tokio::test]
+async fn performs_quick_actions_and_refreshes() {
+    let app = setup().await;
+    app.source("a")
+        .set_items(vec![item_with_action("1", 1), item("2", 2, None)]);
+    app.refresh("work").await;
+
+    let items = app.get("/api/contexts/work/items").await;
+    assert_eq!(
+        items[0]["actions"],
+        json!([{ "id": "done", "label": "Done", "icon": "symbol:check" }])
+    );
+
+    let fetches = app.source("a").fetches();
+    let (status, body) = app
+        .request(
+            Method::POST,
+            &item_path(&app, "a", "1", "actions/done"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+    assert_eq!(
+        app.source("a").performed(),
+        [("1".to_string(), "done".to_string())]
+    );
+    // The source was refreshed before responding, so the item is gone.
+    assert!(app.source("a").fetches() > fetches);
+    assert_eq!(app.ids("/api/contexts/work/items").await, ["a/2"]);
+}
+
+#[tokio::test]
+async fn rejects_unknown_quick_actions() {
+    let app = setup().await;
+    app.source("a")
+        .set_items(vec![item_with_action("1", 1), item("2", 2, None)]);
+    app.refresh("work").await;
+
+    for (key, item, action, error) in [
+        ("a", "1", "other", "unknown action `other`"),
+        ("a", "2", "done", "unknown action `done`"),
+        ("a", "missing", "done", "unknown item `missing`"),
+    ] {
+        let (status, body) = app
+            .request(
+                Method::POST,
+                &item_path(&app, key, item, &format!("actions/{action}")),
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert_eq!(body["error"], error);
+    }
+    let (status, _) = app
+        .request(Method::POST, "/api/items/nope/1/actions/done", None)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(app.source("a").performed().is_empty());
+}
+
+#[tokio::test]
+async fn reports_failed_quick_actions() {
+    let app = setup().await;
+    app.source("a").set_items(vec![item_with_action("1", 1)]);
+    app.refresh("work").await;
+    app.source("a").set_perform_error("no permission");
+
+    let (status, body) = app
+        .request(
+            Method::POST,
+            &item_path(&app, "a", "1", "actions/done"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert_eq!(body["error"], "no permission");
+    assert_eq!(app.ids("/api/contexts/work/items").await, ["a/1"]);
 }

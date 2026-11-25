@@ -1,7 +1,7 @@
 //! Accounts with external services that sources use, and access tokens for
 //! them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -10,6 +10,7 @@ use serde::Serialize;
 use sqlx::SqlitePool;
 use tokio::time::Instant;
 
+use crate::events::{Event, Events};
 use crate::google::{GoogleClient, GoogleError};
 
 pub const GOOGLE: &str = "google";
@@ -111,15 +112,35 @@ pub struct Accounts {
     tokens: Mutex<HashMap<String, AccessToken>>,
     /// Connect attempts in progress: OAuth state to when it expires.
     pending: Mutex<HashMap<String, Instant>>,
+    /// Accounts whose access was revoked or expired, found when refreshing
+    /// their access token. Not stored: after a restart sources fetch
+    /// straight away and find out again.
+    revoked: Mutex<HashSet<String>>,
+    events: Events,
 }
 
 impl Accounts {
-    pub fn new(pool: SqlitePool, google: Option<GoogleClient>) -> Self {
+    pub fn new(pool: SqlitePool, google: Option<GoogleClient>, events: Events) -> Self {
         Self {
             pool,
             google,
             tokens: Mutex::new(HashMap::new()),
             pending: Mutex::new(HashMap::new()),
+            revoked: Mutex::new(HashSet::new()),
+            events,
+        }
+    }
+
+    /// Whether the account's access was revoked or expired, so it must be
+    /// connected again.
+    pub fn is_revoked(&self, account_id: &str) -> bool {
+        self.revoked.lock().unwrap().contains(account_id)
+    }
+
+    fn set_revoked(&self, account_id: &str) {
+        if self.revoked.lock().unwrap().insert(account_id.to_string()) {
+            // Clients show which accounts need reconnecting.
+            let _ = self.events.send(Event::SettingsChanged);
         }
     }
 
@@ -151,10 +172,11 @@ impl Accounts {
             .is_some_and(|expires| expires > Instant::now())
     }
 
-    /// Forgets the cached access token for an account, e.g. after it was
-    /// reconnected or removed.
+    /// Forgets the cached access token and revocation for an account, e.g.
+    /// after it was reconnected or removed.
     pub fn forget(&self, account_id: &str) {
         self.tokens.lock().unwrap().remove(account_id);
+        self.revoked.lock().unwrap().remove(account_id);
     }
 
     /// An access token for the account, refreshed if needed.
@@ -178,16 +200,19 @@ impl Accounts {
         let refresh_token = refresh_token(&self.pool, account_id)
             .await?
             .context("the account was removed")?;
-        let tokens = google
-            .refresh(&refresh_token)
-            .await
-            .map_err(|error| match error {
-                GoogleError::Revoked => anyhow!(
+        let tokens = match google.refresh(&refresh_token).await {
+            Ok(tokens) => tokens,
+            Err(GoogleError::Revoked) => {
+                self.set_revoked(account_id);
+                bail!(
                     "Google account {} needs reconnecting in settings",
                     account.name
-                ),
-                error => anyhow!(error).context("couldn't refresh the Google access token"),
-            })?;
+                );
+            }
+            Err(error) => {
+                return Err(anyhow!(error).context("couldn't refresh the Google access token"));
+            }
+        };
 
         let expires = Instant::now() + tokens.expires_in().saturating_sub(EXPIRY_MARGIN);
         self.tokens.lock().unwrap().insert(
@@ -246,9 +271,17 @@ mod tests {
         assert!(!account.has_scopes(["https://www.googleapis.com/auth/gmail.readonly"]));
     }
 
+    async fn accounts() -> Accounts {
+        Accounts::new(
+            db::connect_in_memory().await.unwrap(),
+            None,
+            crate::events::channel(),
+        )
+    }
+
     #[tokio::test]
     async fn connect_states_are_single_use() {
-        let accounts = Accounts::new(db::connect_in_memory().await.unwrap(), None);
+        let accounts = accounts().await;
         let state = accounts.begin_connect();
         assert!(!accounts.finish_connect("other"));
         assert!(accounts.finish_connect(&state));
@@ -257,7 +290,7 @@ mod tests {
 
     #[tokio::test]
     async fn connect_states_expire() {
-        let accounts = Accounts::new(db::connect_in_memory().await.unwrap(), None);
+        let accounts = accounts().await;
         tokio::time::pause();
         let state = accounts.begin_connect();
         tokio::time::advance(STATE_LIFETIME + Duration::from_secs(1)).await;

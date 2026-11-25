@@ -66,6 +66,10 @@ pub fn router(workspace: AppState) -> Router {
             "/items/{source}/{item}/due",
             put(items::set_due).delete(items::clear_due),
         )
+        .route(
+            "/items/{source}/{item}/actions/{action}",
+            post(items::perform_action),
+        )
         .route("/activity", post(items::activity))
         .route("/events", get(items::events))
         .fallback(|| async { ApiError::NotFound("not found".to_string()) });
@@ -82,6 +86,8 @@ pub enum ApiError {
     BadRequest(String),
     NotFound(String),
     Conflict(String),
+    /// A service the dashboard talks to (e.g. a source's API) failed.
+    Upstream(String),
     Internal(String),
 }
 
@@ -98,6 +104,7 @@ impl IntoResponse for ApiError {
             ApiError::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
             ApiError::NotFound(message) => (StatusCode::NOT_FOUND, message),
             ApiError::Conflict(message) => (StatusCode::CONFLICT, message),
+            ApiError::Upstream(message) => (StatusCode::BAD_GATEWAY, message),
             ApiError::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
         };
         (status, Json(json!({ "error": message }))).into_response()

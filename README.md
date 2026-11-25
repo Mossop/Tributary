@@ -12,11 +12,15 @@ list, so you can see everything you need to do in one place.
 - Items can be **snoozed** until a date and time, or forever. The snoozed view
   (`/c/<context>/snoozed`) lists them and lets you unsnooze them.
 - An item's **due date can be overridden**.
+- Some items have **quick actions**, such as marking a Google task complete,
+  done straight from the list. The item's source is refreshed afterwards.
 - Sources are polled on their own schedule, more slowly while nobody is using
   the dashboard. Opening the dashboard refreshes everything, and there is a
   refresh button. Updates are pushed to the browser as they arrive.
 - Contexts and sources are managed on the **settings page** (`/settings`, the
-  gear button). Changes take effect immediately, with no server restart. On
+  gear button). A dot on the gear means something there needs a look: a
+  source that failed to update (its error is shown on its entry) or an
+  account that needs reconnecting. Changes take effect immediately, with no server restart. On
   first run there is a single "Default" context, which you can rename.
 
 Currently available source types: GitHub (issue/PR search) and Google Tasks.
@@ -93,9 +97,10 @@ account can be shared by many sources. To allow connecting accounts:
 4. Put the client ID and secret in `[google]`, and set `public_url` if the
    dashboard isn't at `http://localhost:8080`.
 
-Then use "Connect Google account" in the Accounts section of settings. If a
-source type needing more access is added later, the account is marked as
-needing reconnecting.
+Then use "Connect Google account" in the Accounts section of settings. If
+an account's access is revoked or expires, or a source type needing more
+access is added later, the account is marked as needing reconnecting and a
+dot appears on the settings button.
 
 ### Source settings
 
@@ -109,7 +114,9 @@ results, most recently updated first.
 **Google Tasks**: a Google account and a task list, or all lists. Shows
 incomplete tasks; with all lists, each task's description starts with its
 list's name. Google only stores the date of a due time, so tasks are due at
-midday UTC on that date.
+midday UTC on that date. Tasks have a "Mark complete" quick action, which
+needs read and write access to Google Tasks; accounts connected before it was
+added show "Needs reconnecting" until reconnected.
 
 Secret settings such as tokens are stored in the database in plain text. They
 are never sent back to the browser; leave the field blank when editing to keep
@@ -126,11 +133,17 @@ pub trait Source: Send + Sync {
     fn icon(&self) -> String;
     /// The complete current list of items.
     async fn fetch(&self) -> Result<Vec<SourceItem>, SourceError>;
+    /// Performs one of an item's quick actions (optional).
+    async fn perform(&self, item_id: &str, action: &str) -> Result<(), SourceError>;
 }
 ```
 
 Each `SourceItem` has a stable `id`, `title`, `url`, `modified`, and optional
-`description`, `due` and `icon` (used instead of the source's icon).
+`description`, `due`, `icon` (used instead of the source's icon) and
+`actions`. Each quick action has an `id` passed to `perform`, a `label` and
+an `icon`; the dashboard refreshes the source after performing one. An item's
+`id` should contain whatever `perform` needs, e.g. `list/task` for Google
+Tasks.
 
 1. Add a module under `server/src/sources/` with a `Deserialize` config struct
    and the `Source` implementation.

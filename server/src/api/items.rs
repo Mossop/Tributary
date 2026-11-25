@@ -131,6 +131,31 @@ pub async fn clear_due(
     Ok(state_changed(&ws, source, item))
 }
 
+/// Performs one of an item's quick actions, then refreshes its source so the
+/// result shows straight away.
+pub async fn perform_action(
+    State(ws): State<AppState>,
+    Path((source, item, action)): Path<(String, String, String)>,
+) -> ApiResult<StatusCode> {
+    find_source(&ws, &source).await?;
+    let actions = db::item_actions(&ws.pool, &source, &item)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("unknown item `{item}`")))?;
+    if !actions.iter().any(|a| a.id == action) {
+        return Err(ApiError::NotFound(format!("unknown action `{action}`")));
+    }
+    let running = ws
+        .running(&source)
+        .ok_or_else(|| ApiError::Conflict("the source isn't running".to_string()))?;
+    running
+        .source
+        .perform(&item, &action)
+        .await
+        .map_err(|error| ApiError::Upstream(error.to_string()))?;
+    running.handle.refresh().await;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn activity(State(ws): State<AppState>) -> StatusCode {
     if ws.activity.ping() {
         // The dashboard was idle; refresh everything.

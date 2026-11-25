@@ -58,7 +58,15 @@ async function open() {
     tasks,
     null,
     [],
-    [{ id: "a", provider: "google", name: "me", missing_scopes: false }],
+    [
+      {
+        id: "a",
+        provider: "google",
+        name: "me",
+        missing_scopes: false,
+        revoked: false,
+      },
+    ],
     null,
     async () => {},
   );

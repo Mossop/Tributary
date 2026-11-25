@@ -27,9 +27,10 @@ frontend in `frontend/`. See README.md for features and configuration.
 - `google.rs` — Google OAuth client (consent URL, code exchange, refresh,
   userinfo). Endpoints are configurable so tests use wiremock.
 - `db.rs` — items, item state and source status (sqlx runtime queries; sqlx
-  0.9 rejects non-literal SQL). Migrations in `server/migrations`. Timestamps
-  are epoch milliseconds. Query functions take `now` explicitly. Sorting lives
-  in `list_items`.
+  0.9 rejects non-literal SQL). Migrations in `server/migrations`; add a new
+  one per schema change and never edit existing ones. Timestamps are epoch
+  milliseconds. Query functions take `now` explicitly. Sorting lives in
+  `list_items`.
 - `scheduler.rs` — one polling task per source; `SourceHandle` forces
   refreshes; dropping all handles stops the task (results of an in-flight
   fetch are discarded).
@@ -73,6 +74,9 @@ frontend in `frontend/`. See README.md for features and configuration.
 
 ## Scope notes
 
-- Quick actions and creating items are deliberately not implemented yet.
+- Creating items is deliberately not implemented yet. Quick actions exist
+  (`SourceItem.actions`, `Source::perform`, `POST
+  /api/items/{source}/{item}/actions/{action}`, which refreshes the source
+  before responding); Google Tasks "complete" is the only one so far.
 - Sources do not have configurable icons; a source defines its icon and items
   may optionally override it.

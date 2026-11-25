@@ -111,4 +111,51 @@ describe("item-row", () => {
     expect(actions[2]).toMatchObject({ action: "snooze", item });
     expect((actions[2] as { until: Date }).until.getHours()).toBe(9);
   });
+
+  it("fires quick actions", async () => {
+    let item = makeItem({
+      actions: [
+        { id: "complete", label: "Mark complete", icon: "symbol:check_circle" },
+      ],
+    });
+    let row = await render({ item });
+    let actions: ItemAction[] = [];
+    row.addEventListener("item-action", (e) => actions.push(e.detail));
+
+    let button = row.shadowRoot!.querySelector<HTMLElement>(
+      ".actions wa-button[title='Mark complete']",
+    )!;
+    expect(button.querySelector("wa-icon")!.getAttribute("name")).toBe(
+      "check_circle",
+    );
+    button.click();
+    expect(actions).toEqual([{ action: "quick", item, id: "complete" }]);
+  });
+
+  it("shows quick actions in progress", async () => {
+    let item = makeItem({
+      actions: [
+        { id: "complete", label: "Mark complete", icon: "symbol:check" },
+      ],
+    });
+    let row = await render({ item, busy: true });
+    let button = row.shadowRoot!.querySelector(
+      "wa-button[title='Mark complete']",
+    )!;
+    expect(button.hasAttribute("loading")).toBe(true);
+    expect(button.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("doesn't offer quick actions in the snoozed view", async () => {
+    let item = makeItem({
+      snoozed_forever: true,
+      actions: [
+        { id: "complete", label: "Mark complete", icon: "symbol:check" },
+      ],
+    });
+    let row = await render({ item, snoozed: true });
+    expect(
+      row.shadowRoot!.querySelector("wa-button[title='Mark complete']"),
+    ).toBeNull();
+  });
 });

@@ -21,6 +21,8 @@ use crate::sources::FieldKind;
 pub struct ProviderInfo {
     id: &'static str,
     name: &'static str,
+    /// A URL, or `symbol:<name>` for a Material Symbol.
+    icon: &'static str,
     /// Whether the server has the configuration needed to connect accounts.
     configured: bool,
 }
@@ -29,6 +31,7 @@ pub async fn list_providers(State(ws): State<AppState>) -> Json<Vec<ProviderInfo
     Json(vec![ProviderInfo {
         id: GOOGLE,
         name: "Google",
+        icon: "https://www.gstatic.com/images/branding/googleg/1x/googleg_standard_color_48dp.png",
         configured: ws.accounts.google().is_some(),
     }])
 }
@@ -40,6 +43,8 @@ pub struct AccountInfo {
     /// The account lacks scopes that source types need, so it should be
     /// connected again.
     missing_scopes: bool,
+    /// Access was revoked or expired, so it must be connected again.
+    revoked: bool,
 }
 
 pub async fn list_accounts(State(ws): State<AppState>) -> ApiResult<Json<Vec<AccountInfo>>> {
@@ -49,6 +54,7 @@ pub async fn list_accounts(State(ws): State<AppState>) -> ApiResult<Json<Vec<Acc
             .into_iter()
             .map(|account| AccountInfo {
                 missing_scopes: !account.has_scopes(ws.registry.scopes_for(&account.provider)),
+                revoked: ws.accounts.is_revoked(&account.id),
                 account,
             })
             .collect(),

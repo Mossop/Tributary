@@ -10,6 +10,11 @@ import type {
 } from "./api.ts";
 import type { Route } from "./route.ts";
 
+/** Identifies an item across sources. */
+export function itemKey(item: Item): string {
+  return `${item.source_id}/${item.id}`;
+}
+
 /** How often to tell the server we're active and reload while visible. */
 export const ACTIVITY_INTERVAL_MS = 60_000;
 
@@ -22,6 +27,8 @@ export interface State {
   /** Items for the current route (active or snoozed). */
   items: Item[];
   route: Route;
+  /** Items with a quick action in progress, as `itemKey`s. */
+  busy: string[];
   loaded: boolean;
   refreshing: boolean;
   error: string | null;
@@ -49,6 +56,7 @@ export class Store extends EventTarget {
     providers: [],
     items: [],
     route: { view: "items", context: null },
+    busy: [],
     loaded: false,
     refreshing: false,
     error: null,
@@ -142,6 +150,23 @@ export class Store extends EventTarget {
     }
   }
 
+  /** Whether any account must be connected again. */
+  accountsNeedReconnecting(): boolean {
+    return this.state.accounts.some((a) => a.missing_scopes || a.revoked);
+  }
+
+  /** Why the settings page needs a look, if it does: accounts to reconnect
+   * or sources that failed to update. */
+  settingsAttention(): string | null {
+    if (this.accountsNeedReconnecting()) {
+      return "An account needs reconnecting";
+    }
+    if (this.state.sources.some((s) => s.status.last_error)) {
+      return "A source couldn't update";
+    }
+    return null;
+  }
+
   /** The sources shown in the current context. */
   contextSources(): Source[] {
     let context = this.state.route.context;
@@ -204,7 +229,9 @@ export class Store extends EventTarget {
     try {
       await action;
     } catch (error) {
+      // Nothing changed, and reloading would clear the error.
       this.fail(error);
+      return;
     }
     await this.loadItems();
   }
@@ -223,6 +250,23 @@ export class Store extends EventTarget {
 
   clearDue(item: Item) {
     return this.mutate(api.clearDue(item));
+  }
+
+  async performAction(item: Item, action: string) {
+    let key = itemKey(item);
+    this.update({ busy: [...this.state.busy, key] });
+    let ok = true;
+    try {
+      await api.performAction(item, action);
+    } catch (error) {
+      ok = false;
+      this.fail(error);
+    }
+    this.update({ busy: this.state.busy.filter((k) => k != key) });
+    // Nothing changed if it failed, and reloading would clear the error.
+    if (ok) {
+      await this.loadItems();
+    }
   }
 
   /** Reloads contexts, sources and accounts, leaving a context that no

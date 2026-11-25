@@ -49,6 +49,20 @@ pub struct SourceItem {
     pub description: Option<String>,
     #[serde(default)]
     pub due: Option<DateTime<Utc>>,
+    /// Quick actions offered for this item, performed by [`Source::perform`].
+    #[serde(default)]
+    pub actions: Vec<QuickAction>,
+}
+
+/// Something that can be done to an item directly from the dashboard.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QuickAction {
+    /// Identifies the action to [`Source::perform`].
+    pub id: String,
+    /// Describes the action, e.g. "Mark complete".
+    pub label: String,
+    /// Either a URL or `symbol:<name>` for a Material Symbol.
+    pub icon: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -67,6 +81,14 @@ pub trait Source: Send + Sync {
 
     /// Fetches the current complete list of items.
     async fn fetch(&self) -> Result<Vec<SourceItem>, SourceError>;
+
+    /// Performs one of an item's quick actions. The source is refreshed
+    /// afterwards.
+    async fn perform(&self, _item_id: &str, _action: &str) -> Result<(), SourceError> {
+        Err(SourceError::Message(
+            "this source has no quick actions".to_string(),
+        ))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -339,7 +361,7 @@ mod tests {
     fn context() -> SourceContext {
         let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
         SourceContext {
-            accounts: Arc::new(Accounts::new(pool, None)),
+            accounts: Arc::new(Accounts::new(pool, None, crate::events::channel())),
         }
     }
 

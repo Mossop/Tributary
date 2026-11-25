@@ -73,6 +73,16 @@ describe("api", () => {
     ]);
   });
 
+  it("performs quick actions", async () => {
+    let calls = mockFetch();
+    await api.performAction(
+      makeItem({ source_id: "gh", id: "inbox/t1" }),
+      "complete",
+    );
+    expect(calls[0].method).toBe("POST");
+    expect(calls[0].url).toBe("/api/items/gh/inbox%2Ft1/actions/complete");
+  });
+
   it("sends due overrides", async () => {
     let calls = mockFetch();
     await api.setDue(makeItem(), new Date("2026-02-01T09:00:00Z"));

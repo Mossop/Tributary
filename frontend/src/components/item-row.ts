@@ -7,7 +7,7 @@ import "@awesome.me/webawesome/dist/components/divider/divider.js";
 import "@awesome.me/webawesome/dist/components/icon/icon.js";
 import "@awesome.me/webawesome/dist/components/tag/tag.js";
 
-import type { Item, Source } from "../api.ts";
+import type { Item, QuickAction, Source } from "../api.ts";
 import {
   absoluteTime,
   effectiveDue,
@@ -22,7 +22,8 @@ export type ItemAction =
   | { action: "snooze-custom"; item: Item }
   | { action: "unsnooze"; item: Item }
   | { action: "due-custom"; item: Item }
-  | { action: "clear-due"; item: Item };
+  | { action: "clear-due"; item: Item }
+  | { action: "quick"; item: Item; id: string };
 
 /** Fired (bubbling, composed) when the user picks an action for an item. */
 export class ItemActionEvent extends Event {
@@ -37,6 +38,8 @@ export class ItemRow extends LitElement {
   @property({ attribute: false }) source?: Source;
   /** Shown in the snoozed view. */
   @property({ type: Boolean }) snoozed = false;
+  /** A quick action is in progress. */
+  @property({ type: Boolean }) busy = false;
   @property({ attribute: false }) now = new Date();
 
   static styles = css`
@@ -136,6 +139,24 @@ export class ItemRow extends LitElement {
     return nothing;
   }
 
+  private renderQuickAction(action: QuickAction) {
+    let icon = parseIcon(action.icon);
+    return html`<wa-button
+      appearance="plain"
+      title=${action.label}
+      ?loading=${this.busy}
+      ?disabled=${this.busy}
+      @click=${() =>
+        this.fire({ action: "quick", item: this.item, id: action.id })}
+    >
+      ${
+        "symbol" in icon
+          ? html`<wa-icon name=${icon.symbol} label=${action.label}></wa-icon>`
+          : html`<img class="icon" src=${icon.url} alt=${action.label} />`
+      }
+    </wa-button>`;
+  }
+
   private renderActions() {
     if (this.snoozed) {
       return html`<wa-button
@@ -171,6 +192,7 @@ export class ItemRow extends LitElement {
     };
 
     return html`
+      ${this.item.actions.map((action) => this.renderQuickAction(action))}
       <wa-dropdown placement="bottom-end" @wa-select=${onSnooze}>
         <wa-button slot="trigger" appearance="plain" title="Snooze">
           <wa-icon name="snooze" label="Snooze"></wa-icon>

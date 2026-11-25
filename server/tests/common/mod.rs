@@ -16,13 +16,18 @@ use sqlx::SqlitePool;
 use tower::ServiceExt;
 
 use tributary::config::Config;
-use tributary::sources::{Field, FieldKind, Registry, Source, SourceError, SourceItem, SourceType};
+use tributary::sources::{
+    Field, FieldKind, QuickAction, Registry, Source, SourceError, SourceItem, SourceType,
+};
 use tributary::{Workspace, api, db};
 
 /// A source whose results are controlled by the test.
 pub struct TestSource {
     result: Mutex<Result<Vec<SourceItem>, String>>,
     fetches: AtomicUsize,
+    /// `(item, action)` for each quick action performed.
+    performed: Mutex<Vec<(String, String)>>,
+    perform_error: Mutex<Option<String>>,
 }
 
 impl TestSource {
@@ -30,6 +35,8 @@ impl TestSource {
         Arc::new(Self {
             result: Mutex::new(Ok(Vec::new())),
             fetches: AtomicUsize::new(0),
+            performed: Mutex::new(Vec::new()),
+            perform_error: Mutex::new(None),
         })
     }
 
@@ -43,6 +50,14 @@ impl TestSource {
 
     pub fn fetches(&self) -> usize {
         self.fetches.load(Ordering::SeqCst)
+    }
+
+    pub fn performed(&self) -> Vec<(String, String)> {
+        self.performed.lock().unwrap().clone()
+    }
+
+    pub fn set_perform_error(&self, error: &str) {
+        *self.perform_error.lock().unwrap() = Some(error.to_string());
     }
 }
 
@@ -60,6 +75,21 @@ impl Source for TestSource {
             .clone()
             .map_err(SourceError::Message)
     }
+
+    /// Records the action and, like completing a task, removes the item.
+    async fn perform(&self, item_id: &str, action: &str) -> Result<(), SourceError> {
+        if let Some(error) = self.perform_error.lock().unwrap().clone() {
+            return Err(SourceError::Message(error));
+        }
+        self.performed
+            .lock()
+            .unwrap()
+            .push((item_id.to_string(), action.to_string()));
+        if let Ok(items) = &mut *self.result.lock().unwrap() {
+            items.retain(|item| item.id != item_id);
+        }
+        Ok(())
+    }
 }
 
 pub fn time(day: u32) -> DateTime<Utc> {
@@ -75,6 +105,19 @@ pub fn item(id: &str, modified: u32, due: Option<u32>) -> SourceItem {
         modified: time(modified),
         description: None,
         due: due.map(time),
+        actions: Vec::new(),
+    }
+}
+
+/// An item offering a `done` quick action.
+pub fn item_with_action(id: &str, modified: u32) -> SourceItem {
+    SourceItem {
+        actions: vec![QuickAction {
+            id: "done".to_string(),
+            label: "Done".to_string(),
+            icon: "symbol:check".to_string(),
+        }],
+        ..item(id, modified, None)
     }
 }
 

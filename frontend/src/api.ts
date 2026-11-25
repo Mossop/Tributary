@@ -53,11 +53,15 @@ export interface Account {
   name: string;
   /** Source types need access the account hasn't granted; connect it again. */
   missing_scopes: boolean;
+  /** Access was revoked or expired; connect it again. */
+  revoked: boolean;
 }
 
 export interface AccountProvider {
   id: string;
   name: string;
+  /** A URL, or `symbol:<name>` for a Material Symbol. */
+  icon: string;
   /** Whether the server is set up to connect accounts. */
   configured: boolean;
 }
@@ -77,6 +81,14 @@ export interface SourceSettings {
   config: Record<string, unknown>;
 }
 
+/** Something that can be done to an item from the dashboard. */
+export interface QuickAction {
+  id: string;
+  label: string;
+  /** A URL, or `symbol:<name>` for a Material Symbol. */
+  icon: string;
+}
+
 export interface Item {
   source_id: string;
   id: string;
@@ -89,6 +101,7 @@ export interface Item {
   due_override: string | null;
   snoozed_until: string | null;
   snoozed_forever: boolean;
+  actions: QuickAction[];
 }
 
 export type ServerEvent =
@@ -179,6 +192,15 @@ export function setDue(item: Item, due: Date) {
 
 export function clearDue(item: Item) {
   return request<void>("DELETE", `${itemPath(item)}/due`);
+}
+
+/** Performs a quick action, resolving once the item's source has been
+ * refreshed. */
+export function performAction(item: Item, action: string) {
+  return request<void>(
+    "POST",
+    `${itemPath(item)}/actions/${encodeURIComponent(action)}`,
+  );
 }
 
 /** Tells the server the dashboard is in use. */

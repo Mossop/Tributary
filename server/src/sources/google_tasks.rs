@@ -9,12 +9,15 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{
-    Field, FieldKind, FieldOption, Source, SourceContext, SourceError, SourceItem, SourceType,
+    Field, FieldKind, FieldOption, QuickAction, Source, SourceContext, SourceError, SourceItem,
+    SourceType,
 };
 use crate::accounts::{Accounts, GOOGLE};
 
 const ICON: &str = "https://www.gstatic.com/images/branding/product/1x/tasks_48dp.png";
-const SCOPE: &str = "https://www.googleapis.com/auth/tasks.readonly";
+/// Read and write access; writing is needed to complete tasks.
+const SCOPE: &str = "https://www.googleapis.com/auth/tasks";
+const COMPLETE: &str = "complete";
 /// The `list` value meaning every list.
 pub const ALL_LISTS: &str = "*";
 const TASKS_URL: &str = "https://tasks.google.com/";
@@ -114,9 +117,11 @@ struct Task {
 }
 
 impl Task {
-    fn into_item(self, list: Option<&str>) -> SourceItem {
+    /// The item for a task in list `list_id`. `list_title` is given when
+    /// showing every list.
+    fn into_item(self, list_id: &str, list_title: Option<&str>) -> SourceItem {
         let notes = self.notes.filter(|n| !n.trim().is_empty());
-        let description = match (list, notes) {
+        let description = match (list_title, notes) {
             (Some(list), Some(notes)) => Some(format!("{list} · {notes}")),
             (Some(list), None) => Some(list.to_string()),
             (None, notes) => notes,
@@ -127,7 +132,8 @@ impl Task {
             self.title
         };
         SourceItem {
-            id: self.id,
+            // Completing a task needs its list.
+            id: format!("{list_id}/{}", self.id),
             title,
             url: self.web_view_link.unwrap_or_else(|| TASKS_URL.to_string()),
             icon: None,
@@ -140,6 +146,11 @@ impl Task {
                     .and_time(NaiveTime::from_hms_opt(12, 0, 0).unwrap())
                     .and_utc()
             }),
+            actions: vec![QuickAction {
+                id: COMPLETE.to_string(),
+                label: "Mark complete".to_string(),
+                icon: "symbol:check_circle".to_string(),
+            }],
         }
     }
 }
@@ -212,6 +223,28 @@ impl TasksClient {
         self.get_all(token, "/users/@me/lists", &[]).await
     }
 
+    async fn complete(&self, token: &str, list: &str, task: &str) -> anyhow::Result<()> {
+        let response = self
+            .http
+            .patch(format!(
+                "{}/lists/{}/tasks/{}",
+                self.api_url,
+                urlencode(list),
+                urlencode(task)
+            ))
+            .bearer_auth(token)
+            .json(&serde_json::json!({ "status": "completed" }))
+            .send()
+            .await?;
+        let status = response.status();
+        if !status.is_success() {
+            let body: Value = response.json().await.unwrap_or_default();
+            let message = body["error"]["message"].as_str().unwrap_or_default();
+            return Err(anyhow!("Google Tasks returned {status}: {message}"));
+        }
+        Ok(())
+    }
+
     async fn tasks(&self, token: &str, list: &str) -> anyhow::Result<Vec<Task>> {
         let path = format!("/lists/{}/tasks", urlencode(list));
         let tasks: Vec<Task> = self
@@ -252,14 +285,33 @@ impl GoogleTasksSource {
         let token = client.accounts.access_token(&client.account).await?;
         if self.list != ALL_LISTS {
             let tasks = client.tasks(&token, &self.list).await?;
-            return Ok(tasks.into_iter().map(|t| t.into_item(None)).collect());
+            return Ok(tasks
+                .into_iter()
+                .map(|t| t.into_item(&self.list, None))
+                .collect());
         }
         let mut items = Vec::new();
         for list in client.lists(&token).await? {
             let tasks = client.tasks(&token, &list.id).await?;
-            items.extend(tasks.into_iter().map(|t| t.into_item(Some(&list.title))));
+            items.extend(
+                tasks
+                    .into_iter()
+                    .map(|t| t.into_item(&list.id, Some(&list.title))),
+            );
         }
         Ok(items)
+    }
+
+    async fn run_action(&self, item_id: &str, action: &str) -> anyhow::Result<()> {
+        if action != COMPLETE {
+            return Err(anyhow!("unknown action `{action}`"));
+        }
+        let (list, task) = item_id
+            .split_once('/')
+            .ok_or_else(|| anyhow!("unknown task `{item_id}`"))?;
+        let client = &self.client;
+        let token = client.accounts.access_token(&client.account).await?;
+        client.complete(&token, list, task).await
     }
 }
 
@@ -271,6 +323,12 @@ impl Source for GoogleTasksSource {
 
     async fn fetch(&self) -> Result<Vec<SourceItem>, SourceError> {
         self.items()
+            .await
+            .map_err(|error| SourceError::Message(format!("{error:#}")))
+    }
+
+    async fn perform(&self, item_id: &str, action: &str) -> Result<(), SourceError> {
+        self.run_action(item_id, action)
             .await
             .map_err(|error| SourceError::Message(format!("{error:#}")))
     }
@@ -295,8 +353,10 @@ mod tests {
             "updated": "2026-11-20T10:00:00.000Z",
             "webViewLink": "https://tasks.google.com/task/t1",
         }))
-        .into_item(None);
-        assert_eq!(item.id, "t1");
+        .into_item("inbox", None);
+        assert_eq!(item.id, "inbox/t1");
+        assert_eq!(item.actions.len(), 1);
+        assert_eq!(item.actions[0].id, "complete");
         assert_eq!(item.title, "Buy milk");
         assert_eq!(item.url, "https://tasks.google.com/task/t1");
         assert_eq!(item.description.as_deref(), Some("Semi-skimmed"));
@@ -312,7 +372,7 @@ mod tests {
             "title": "",
             "updated": "2026-11-20T10:00:00Z",
         });
-        let item = task(json.clone()).into_item(Some("Groceries"));
+        let item = task(json.clone()).into_item("shop", Some("Groceries"));
         assert_eq!(item.title, "(No title)");
         assert_eq!(item.description.as_deref(), Some("Groceries"));
         assert_eq!(item.url, TASKS_URL);
@@ -320,7 +380,7 @@ mod tests {
 
         let mut with_notes = json;
         with_notes["notes"] = "Some notes".into();
-        let item = task(with_notes).into_item(Some("Groceries"));
+        let item = task(with_notes).into_item("shop", Some("Groceries"));
         assert_eq!(item.description.as_deref(), Some("Groceries · Some notes"));
     }
 

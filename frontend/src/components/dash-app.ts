@@ -8,7 +8,7 @@ import "@awesome.me/webawesome/dist/components/icon/icon.js";
 import "@awesome.me/webawesome/dist/components/spinner/spinner.js";
 
 import { type Route, parseRoute, routeUrl } from "../route.ts";
-import { Store, type State } from "../store.ts";
+import { Store, type State, itemKey } from "../store.ts";
 import type { DateDialog } from "./date-dialog.ts";
 import "./date-dialog.ts";
 import type { ItemActionEvent } from "./item-row.ts";
@@ -43,6 +43,22 @@ export class DashApp extends LitElement {
 
     .spacer {
       flex: 1;
+    }
+
+    .settings {
+      position: relative;
+    }
+
+    /* Shown on the settings button when something there needs a look. */
+    .dot {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--wa-color-danger-fill-loud);
+      pointer-events: none;
     }
 
     .list {
@@ -131,6 +147,9 @@ export class DashApp extends LitElement {
         break;
       case "clear-due":
         await this.store.clearDue(item);
+        break;
+      case "quick":
+        await this.store.performAction(item, detail.id);
         break;
       case "snooze-custom": {
         let tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
@@ -229,38 +248,35 @@ export class DashApp extends LitElement {
       >
         <wa-icon name="refresh" label="Refresh"></wa-icon>
       </wa-button>
-      <wa-button
-        appearance="plain"
-        title="Settings"
-        @click=${() => this.go({ view: "settings", context: null })}
-      >
-        <wa-icon name="settings" label="Settings"></wa-icon>
-      </wa-button>
+      ${this.renderSettingsButton()}
     </header>`;
   }
 
+  private renderSettingsButton() {
+    let attention = this.store.settingsAttention();
+    let label = attention ? `Settings: ${attention}` : "Settings";
+    return html`<span class="settings">
+      <wa-button
+        appearance="plain"
+        title=${label}
+        @click=${() => this.go({ view: "settings", context: null })}
+      >
+        <wa-icon name="settings" label=${label}></wa-icon>
+      </wa-button>
+      ${attention ? html`<span class="dot"></span>` : nothing}
+    </span>`;
+  }
+
+  /** Source errors are shown in settings instead, flagged by the dot on the
+   * settings button. */
   private renderErrors() {
-    let failing =
-      this.state.route.view == "settings"
-        ? []
-        : this.store.contextSources().filter((s) => s.status.last_error);
-    return html`
-      ${
-        this.state.error
-          ? html`<wa-callout variant="danger">
-              <wa-icon slot="icon" name="error"></wa-icon>
-              ${this.state.error}
-            </wa-callout>`
-          : nothing
-      }
-      ${failing.map(
-        (source) =>
-          html`<wa-callout variant="warning">
-            <wa-icon slot="icon" name="warning"></wa-icon>
-            Couldn't update ${source.name}: ${source.status.last_error}
-          </wa-callout>`,
-      )}
-    `;
+    if (!this.state.error) {
+      return nothing;
+    }
+    return html`<wa-callout variant="danger">
+      <wa-icon slot="icon" name="error"></wa-icon>
+      ${this.state.error}
+    </wa-callout>`;
   }
 
   private renderItems() {
@@ -296,6 +312,7 @@ export class DashApp extends LitElement {
           .source=${sourcesById.get(item.source_id)}
           .now=${now}
           ?snoozed=${snoozed}
+          ?busy=${this.state.busy.includes(itemKey(item))}
         ></item-row>`,
     );
   }

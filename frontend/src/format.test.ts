@@ -23,6 +23,7 @@ function item(fields: Partial<Item> = {}): Item {
     due_override: null,
     snoozed_until: null,
     snoozed_forever: false,
+    actions: [],
     ...fields,
   };
 }
