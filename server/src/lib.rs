@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
 use sqlx::SqlitePool;
+use tokio::sync::watch;
 use tracing::warn;
 
 use crate::activity::Activity;
@@ -42,6 +43,8 @@ pub struct Workspace {
     pub activity: Arc<Activity>,
     pub registry: Registry,
     running: Mutex<HashMap<String, RunningSource>>,
+    /// Set to true when the server is shutting down.
+    shutdown: watch::Sender<bool>,
 }
 
 impl Workspace {
@@ -62,11 +65,27 @@ impl Workspace {
             activity,
             registry,
             running: Mutex::new(HashMap::new()),
+            shutdown: watch::Sender::new(false),
         });
         for source in settings::list_sources(&workspace.pool).await? {
             workspace.run(&source).await;
         }
         Ok(workspace)
+    }
+
+    /// Ends long-lived responses (event streams) so that a graceful server
+    /// shutdown doesn't wait for them.
+    pub fn shutdown(&self) {
+        self.shutdown.send_replace(true);
+    }
+
+    /// Resolves once [`Workspace::shutdown`] has been called.
+    async fn shutting_down(&self) {
+        let _ = self
+            .shutdown
+            .subscribe()
+            .wait_for(|shutdown| *shutdown)
+            .await;
     }
 
     /// Starts polling a source, replacing it if it was already running. If

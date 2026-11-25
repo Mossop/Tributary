@@ -28,7 +28,8 @@ frontend in `frontend/`. See README.md for features and configuration.
   refreshes; dropping all handles stops the task (results of an in-flight
   fetch are discarded).
 - `activity.rs` — active/idle tracking from client pings.
-- `events.rs` — broadcast events streamed over SSE at `/api/events`.
+- `events.rs` — broadcast events streamed over SSE at `/api/events`. The
+  streams end on `Workspace::shutdown` so graceful shutdown doesn't hang.
 - `api/` — HTTP routes (`items.rs`, `settings_api.rs`); also serves
   `static_dir` with SPA fallback.
 - `lib.rs` — `Workspace` ties config, db, events, the registry and the running

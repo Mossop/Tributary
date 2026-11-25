@@ -144,9 +144,12 @@ pub async fn activity(State(ws): State<AppState>) -> StatusCode {
 pub async fn events(
     State(ws): State<AppState>,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
-    let stream = BroadcastStream::new(ws.events.subscribe()).filter_map(|event| async move {
-        let event = event.ok()?;
-        SseEvent::default().json_data(event).ok().map(Ok)
-    });
+    let events = BroadcastStream::new(ws.events.subscribe());
+    let stream = events
+        .filter_map(|event| async move {
+            let event = event.ok()?;
+            SseEvent::default().json_data(event).ok().map(Ok)
+        })
+        .take_until(async move { ws.shutting_down().await });
     Sse::new(stream).keep_alive(KeepAlive::default())
 }

@@ -248,6 +248,24 @@ async fn activity_after_idle_refreshes_all_sources() {
 }
 
 #[tokio::test]
+async fn events_stream_ends_on_shutdown() {
+    let app = start().await;
+    let response = app
+        .router
+        .clone()
+        .oneshot(Request::get("/api/events").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let body = response.into_body();
+
+    app.workspace.shutdown();
+    tokio::time::timeout(Duration::from_secs(5), body.collect())
+        .await
+        .expect("the stream should end")
+        .unwrap();
+}
+
+#[tokio::test]
 async fn events_stream_reports_changes() {
     let app = setup().await;
     app.source("b").set_items(vec![item("1", 1, None)]);
