@@ -11,11 +11,12 @@ use tracing::warn;
 
 use super::{ApiError, ApiResult, AppState};
 use crate::Workspace;
-use crate::accounts::{self, GITHUB, GOOGLE, PHABRICATOR};
+use crate::accounts::{self, BUGZILLA, GITHUB, GOOGLE, PHABRICATOR};
 use crate::events::Event;
 use crate::google::IDENTITY_SCOPES;
 use crate::settings::{self, SourceRecord};
 use crate::sources::FieldKind;
+use crate::sources::bugzilla;
 use crate::sources::github;
 use crate::sources::phabricator::{self, conduit};
 
@@ -79,6 +80,15 @@ pub async fn list_providers(State(ws): State<AppState>) -> Json<Vec<ProviderInfo
                 "A Conduit API token, from Settings → Conduit API Tokens in Phabricator.",
             ),
             api_url_placeholder: Some(conduit::DEFAULT_API_URL),
+        },
+        ProviderInfo {
+            id: BUGZILLA,
+            name: "Bugzilla",
+            icon: bugzilla::ICON,
+            connect: Connect::Token,
+            configured: true,
+            token_hint: Some("An API key, from Preferences → API Keys in Bugzilla."),
+            api_url_placeholder: Some(bugzilla::client::DEFAULT_URL),
         },
     ])
 }
@@ -263,6 +273,39 @@ pub async fn add_phabricator(
             secret: token,
             scopes: "",
             api_url: (api_url != conduit::DEFAULT_API_URL).then_some(api_url.as_str()),
+        },
+    )
+    .await
+}
+
+/// Adds a Bugzilla account from an API key, or updates the key of an
+/// account that was already added.
+pub async fn add_bugzilla(
+    State(ws): State<AppState>,
+    Json(body): Json<TokenAccountBody>,
+) -> ApiResult<(StatusCode, Json<AccountInfo>)> {
+    let key = body.token()?;
+    let base_url = bugzilla::client::base_url(body.api_url.as_deref());
+    let http = bugzilla::http().map_err(|e| ApiError::Internal(e.to_string()))?;
+    let user = bugzilla::client::Bugzilla::new(http, &base_url, key)
+        .whoami()
+        .await
+        .map_err(|error| match error {
+            bugzilla::client::BugzillaError::Rejected => {
+                ApiError::BadRequest("Bugzilla didn't accept the API key".to_string())
+            }
+            error => ApiError::Upstream(format!("Couldn't check the API key: {error}")),
+        })?;
+
+    save_token_account(
+        &ws,
+        accounts::NewAccount {
+            provider: BUGZILLA,
+            subject: &format!("{base_url}#{}", user.id),
+            name: &user.name,
+            secret: key,
+            scopes: "",
+            api_url: (base_url != bugzilla::client::DEFAULT_URL).then_some(base_url.as_str()),
         },
     )
     .await

@@ -26,8 +26,9 @@ list, so you can see everything you need to do in one place.
   account that needs reconnecting. Changes take effect immediately, with no server restart. On
   first run there is a single "Default" context, which you can rename.
 
-Currently available source types: GitHub (issue/PR search), Google Tasks and
-Phabricator (patches to review, to work on and ready to land).
+Currently available source types: GitHub (issue/PR search), Google Tasks,
+Phabricator (patches to review, to work on and ready to land) and Bugzilla
+(bugs assigned to you, or with flags requested of you).
 There is also a stub type with fixed items, used for tests and not offered in
 settings.
 
@@ -115,6 +116,14 @@ settings, then Conduit API Tokens, and generate one. The account is named
 after your Phabricator username. It defaults to Mozilla's Phabricator; give
 an API URL (e.g. `https://phabricator.example.com/api`) for another instance.
 
+### Bugzilla accounts
+
+Bugzilla sources use a Bugzilla account, added in settings ("Add account" →
+Bugzilla) with an API key: in Bugzilla, open Preferences, then API Keys, and
+generate one. The account is named after your Bugzilla login. It defaults to
+Mozilla's Bugzilla; give its URL (e.g. `https://bugzilla.example.com`) for
+another instance.
+
 ### Google accounts
 
 Google sources use a Google account connected on the settings page. One
@@ -166,6 +175,15 @@ added show "Needs reconnecting" until reconnected.
   Lando" quick action. Lando has no API to tell whether a revision is already
   queued for landing, so queued revisions stay listed until they land and
   Phabricator closes them.
+
+**Bugzilla**: a Bugzilla account and what to show:
+
+- **Bugs assigned to me**: your open bugs.
+- **Requests: _flag_**: bugs with that flag (e.g. needinfo) requested of you,
+  whether on the bug or on one of its attachments (except obsolete ones),
+  including closed bugs. Each item says who asked and is dated by when you
+  were asked. The flags offered are needinfo plus any requested of you
+  recently. **Requests: any flag** lists every request of you.
 
 Account tokens and secret source settings are stored in the database in
 plain text. They are never sent back to the browser; leave a secret field

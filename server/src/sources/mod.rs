@@ -29,6 +29,7 @@ use serde_json::{Map, Value};
 
 use crate::accounts::Accounts;
 
+pub mod bugzilla;
 pub mod github;
 pub mod google_tasks;
 pub mod phabricator;
@@ -335,6 +336,7 @@ impl Registry {
         registry.register(github::source_type());
         registry.register(google_tasks::source_type());
         registry.register(phabricator::source_type());
+        registry.register(bugzilla::source_type());
         registry.register(stub::source_type());
         registry
     }

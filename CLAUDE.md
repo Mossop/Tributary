@@ -23,8 +23,9 @@ frontend in `frontend/`. See README.md for features and configuration.
   fn, secret handling, OAuth scopes, select options fn) and `Registry`.
   `sources/github.rs`, `sources/google_tasks.rs`, `sources/phabricator/`
   (`conduit.rs` is the Conduit client; the review rules are in
-  `review_reason`) and `sources/stub.rs` are implementations; stub is
-  unlisted (tests/dev only).
+  `review_reason`), `sources/bugzilla/` (`client.rs` is the REST client)
+  and `sources/stub.rs` are implementations; stub is unlisted (tests/dev
+  only).
 - `accounts.rs` — connected accounts in SQLite (`secret` is a Google refresh
   token or a GitHub access token and never leaves the server) and
   `Accounts`: Google access tokens, GitHub credentials, revocations and

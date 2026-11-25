@@ -16,6 +16,7 @@ use crate::google::{GoogleClient, GoogleError};
 pub const GOOGLE: &str = "google";
 pub const GITHUB: &str = "github";
 pub const PHABRICATOR: &str = "phabricator";
+pub const BUGZILLA: &str = "bugzilla";
 
 /// How long a connect attempt can take before its state expires.
 const STATE_LIFETIME: Duration = Duration::from_secs(10 * 60);
