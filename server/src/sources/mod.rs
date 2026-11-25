@@ -6,7 +6,7 @@
 //! previously returned.
 //!
 //! Sources are configured at runtime through the settings UI. Settings common
-//! to all sources (name, contexts, polling intervals) are handled by the
+//! to all sources (name, contexts) are handled by the
 //! dashboard. Settings specific to a source type are stored as a JSON object
 //! described by the type's [`Field`]s, from which the settings UI builds its
 //! form.

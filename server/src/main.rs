@@ -5,15 +5,15 @@ use clap::Parser;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use dashboard::config::Config;
-use dashboard::sources::Registry;
-use dashboard::{Workspace, api, db};
+use tributary::config::Config;
+use tributary::sources::Registry;
+use tributary::{Workspace, api, db};
 
 #[derive(Parser)]
-#[command(about = "Unified task dashboard server")]
+#[command(about = "Tributary: a unified task dashboard server")]
 struct Args {
     /// Path to the configuration file.
-    #[arg(long, short, default_value = "config.toml")]
+    #[arg(long, short, default_value = "tributary.toml")]
     config: PathBuf,
 }
 

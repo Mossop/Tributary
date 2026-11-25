@@ -15,9 +15,9 @@ use serde_json::{Value, json};
 use sqlx::SqlitePool;
 use tower::ServiceExt;
 
-use dashboard::config::Config;
-use dashboard::sources::{Field, FieldKind, Registry, Source, SourceError, SourceItem, SourceType};
-use dashboard::{Workspace, api, db};
+use tributary::config::Config;
+use tributary::sources::{Field, FieldKind, Registry, Source, SourceError, SourceItem, SourceType};
+use tributary::{Workspace, api, db};
 
 /// A source whose results are controlled by the test.
 pub struct TestSource {
@@ -123,9 +123,9 @@ pub async fn start() -> TestApp {
 }
 
 /// Starts an app polling at the given intervals (humantime strings).
-pub async fn start_polling(interval: &str, idle_interval: &str) -> TestApp {
+pub async fn start_polling(active: &str, idle: &str) -> TestApp {
     start_with(
-        &format!("[polling]\ninterval = \"{interval}\"\nidle_interval = \"{idle_interval}\"\n"),
+        &format!("[polling]\nactive = \"{active}\"\nidle = \"{idle}\"\n"),
         db::connect_in_memory().await.unwrap(),
     )
     .await

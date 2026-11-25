@@ -1,4 +1,4 @@
-//! Unified task dashboard server.
+//! Tributary: unified task dashboard server.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -54,7 +54,7 @@ impl Workspace {
         registry: Registry,
     ) -> anyhow::Result<Arc<Self>> {
         settings::ensure_default_context(&pool).await?;
-        let activity = Arc::new(Activity::new(config.server.active_timeout));
+        let activity = Arc::new(Activity::new(config.polling.active_timeout));
         let workspace = Arc::new(Self {
             config,
             pool,
@@ -83,8 +83,8 @@ impl Workspace {
                     handle: scheduler::spawn(
                         Schedule {
                             source_id: record.id.clone(),
-                            interval: self.config.polling.interval,
-                            idle_interval: self.config.polling.idle_interval,
+                            interval: self.config.polling.active,
+                            idle_interval: self.config.polling.idle,
                         },
                         source,
                         self.pool.clone(),

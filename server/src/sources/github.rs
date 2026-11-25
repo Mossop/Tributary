@@ -81,7 +81,7 @@ impl GithubSource {
             ACCEPT,
             HeaderValue::from_static("application/vnd.github+json"),
         );
-        headers.insert(USER_AGENT, HeaderValue::from_static("dashboard"));
+        headers.insert(USER_AGENT, HeaderValue::from_static("tributary"));
         headers.insert(
             "X-GitHub-Api-Version",
             HeaderValue::from_static("2022-11-28"),

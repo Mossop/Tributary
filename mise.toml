@@ -24,8 +24,8 @@ description = "Build frontend and server"
 depends = ["build:frontend", "build:server"]
 
 [tasks."dev:server"]
-description = "Run the server against config.toml"
-run = "cargo run --manifest-path server/Cargo.toml -- --config config.toml"
+description = "Run the server against tributary.toml"
+run = "cargo run --manifest-path server/Cargo.toml"
 
 [tasks."dev:frontend"]
 description = "Run the Vite dev server (proxies /api to :8080)"
@@ -74,8 +74,8 @@ run = [
 
 [tasks."docker:build"]
 description = "Build the Docker image"
-run = "docker build -t dashboard ."
+run = "docker build -t tributary ."
 
 [tasks."docker:run"]
-description = "Run the Docker image with ./config.toml and a ./data volume"
-run = "docker run --rm -p 8080:8080 -v \"$PWD/config.toml:/config/config.toml:ro\" -v \"$PWD/data:/data\" dashboard"
+description = "Run the Docker image with ./tributary.toml and a ./data volume"
+run = "docker run --rm -p 8080:8080 -v \"$PWD/tributary.toml:/config/tributary.toml:ro\" -v \"$PWD/data:/data\" tributary"

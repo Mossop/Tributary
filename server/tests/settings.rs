@@ -8,8 +8,8 @@ use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
 
 use common::{item, start, start_polling, start_with, wait_for};
-use dashboard::db;
-use dashboard::settings::{self, SourceRecord};
+use tributary::db;
+use tributary::settings::{self, SourceRecord};
 
 #[tokio::test]
 async fn creates_default_context() {

@@ -1,0 +1,15 @@
+# Copy to tributary.toml and edit. Every key is optional and the file itself is
+# optional. Contexts and sources are managed in the dashboard's settings page.
+
+[server]
+listen = "0.0.0.0:8080"
+database = "data/tributary.sqlite"
+static_dir = "frontend/dist"
+
+# How often every source is checked for new items.
+[polling]
+active = "5m"
+idle = "30m"
+# With no client activity for this long the dashboard is idle and sources poll
+# at the idle interval.
+active_timeout = "5m"

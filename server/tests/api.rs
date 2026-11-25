@@ -308,7 +308,7 @@ async fn serves_frontend_with_fallback() {
         "[server]\nstatic_dir = {:?}\n",
         dir.path().to_str().unwrap()
     );
-    let app = start_with(&config, dashboard::db::connect_in_memory().await.unwrap()).await;
+    let app = start_with(&config, tributary::db::connect_in_memory().await.unwrap()).await;
 
     let (status, body) = app.request(Method::GET, "/app.js", None).await;
     assert_eq!(status, StatusCode::OK);

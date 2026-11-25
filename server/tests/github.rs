@@ -2,8 +2,8 @@ use serde_json::json;
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use dashboard::sources::Source;
-use dashboard::sources::github::GithubSource;
+use tributary::sources::Source;
+use tributary::sources::github::GithubSource;
 
 #[tokio::test]
 async fn searches_and_maps_items() {

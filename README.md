@@ -1,8 +1,8 @@
-# Dashboard
+# Tributary
 
-A self-hosted dashboard that collects items of interest (pull requests, bugs,
-emails, tasks…) from many **sources** into one prioritised list, so you can see
-everything you need to do in one place.
+Tributary is a self-hosted dashboard that collects items of interest (pull
+requests, bugs, emails, tasks…) from many **sources** into one prioritised
+list, so you can see everything you need to do in one place.
 
 - **Contexts** are separate views (e.g. work and personal), each at its own URL
   (`/c/<context>`). Each source is shown in one or more contexts. A switcher in
@@ -25,7 +25,7 @@ stub type with fixed items, used for tests and not offered in settings.
 ## Running
 
 Server settings can optionally be put in a config file; copy
-`config.example.toml` to `config.toml` (see [Configuration](#configuration)).
+`tributary.example.toml` to `tributary.toml` (see [Configuration](#configuration)).
 
 ### Docker
 
@@ -34,7 +34,7 @@ mise run docker:build
 mise run docker:run
 ```
 
-`docker:run` mounts `./config.toml` at `/config/config.toml` and stores the
+`docker:run` mounts `./tributary.toml` at `/config/tributary.toml` and stores the
 database in `./data`. In the image the database path and frontend directory
 are preset with environment variables, so they don't need setting in the
 config file.
@@ -53,21 +53,21 @@ if you want the built frontend instead of the Vite dev server.
 ## Configuration
 
 Only server and polling settings live in configuration; contexts and sources
-are stored in the database. The config file is optional (default `config.toml`, change it
-with `--config`). Any value can be overridden with environment variables
-prefixed `DASHBOARD_`, with `__` between nested keys, e.g.
-`DASHBOARD_SERVER__LISTEN=127.0.0.1:9000`.
+are stored in the database. The config file is optional (default
+`tributary.toml` in the current directory, change it with `--config`). Any value can be overridden with environment variables
+prefixed `TRIBUTARY_`, with `__` between nested keys, e.g.
+`TRIBUTARY_SERVER__LISTEN=127.0.0.1:9000`.
 
 ```toml
 [server]                        # all optional
 listen = "0.0.0.0:8080"
-database = "data/dashboard.db"
+database = "data/tributary.sqlite"
 static_dir = "frontend/dist"
-active_timeout = "5m"           # idle after this long with no client activity
 
 [polling]                       # all optional; applies to every source
-interval = "5m"                 # while the dashboard is in use
-idle_interval = "30m"           # while it is idle
+active = "5m"                   # while the dashboard is in use
+idle = "30m"                    # while it is idle
+active_timeout = "5m"           # idle after this long with no client activity
 ```
 
 ### Source settings

@@ -167,7 +167,7 @@ export class DashApp extends LitElement {
             ? html`<wa-icon slot="start" name=${current.icon}></wa-icon>`
             : nothing
         }
-        ${current?.name ?? "Dashboard"}
+        ${current?.name ?? "Tributary"}
       </wa-button>
       ${contexts.map(
         (context) =>
