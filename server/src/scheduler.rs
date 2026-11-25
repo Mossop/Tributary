@@ -1,11 +1,13 @@
 //! Periodic polling of sources.
 //!
-//! Each source gets its own task which fetches immediately on start, then
-//! waits for the source's `interval` (while the dashboard is active) or
+//! Each running source gets its own task which fetches immediately on start,
+//! then waits for the source's `interval` (while the dashboard is active) or
 //! `idle_interval` (while idle) before fetching again. A fetch can be forced
-//! at any time through the source's [`SourceHandle`].
+//! at any time through the source's [`SourceHandle`]. Dropping every handle
+//! stops the task.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::Utc;
 use sqlx::SqlitePool;
@@ -13,7 +15,6 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
 use crate::activity::Activity;
-use crate::config::SourceCommon;
 use crate::db;
 use crate::events::{Event, Events};
 use crate::sources::Source;
@@ -41,9 +42,15 @@ impl SourceHandle {
     }
 }
 
+pub struct Schedule {
+    pub source_id: String,
+    pub interval: Duration,
+    pub idle_interval: Duration,
+}
+
 /// Spawns the polling task for a source.
 pub fn spawn(
-    common: SourceCommon,
+    schedule: Schedule,
     source: Arc<dyn Source>,
     pool: SqlitePool,
     events: Events,
@@ -52,6 +59,7 @@ pub fn spawn(
     let (tx, mut rx) = mpsc::unbounded_channel::<Request>();
 
     tokio::spawn(async move {
+        let id = schedule.source_id.as_str();
         let mut waiters = Vec::new();
         loop {
             // Coalesce any requests that arrived while waiting.
@@ -59,46 +67,61 @@ pub fn spawn(
                 waiters.extend(request);
             }
 
-            fetch(&common, source.as_ref(), &pool, &events).await;
+            let result = fetch(id, source.as_ref()).await;
+            // The source was removed or replaced while fetching; don't store
+            // stale results.
+            if rx.is_closed() {
+                break;
+            }
+            store(id, result, &pool, &events).await;
             for waiter in waiters.drain(..) {
                 let _ = waiter.send(());
             }
 
             let wait = if activity.is_active() {
-                common.interval
+                schedule.interval
             } else {
-                common.idle_interval
+                schedule.idle_interval
             };
             tokio::select! {
                 _ = tokio::time::sleep(wait) => {}
                 request = rx.recv() => match request {
                     Some(request) => waiters.extend(request),
-                    // All handles dropped, the app has shut down.
                     None => break,
                 },
             }
         }
+        debug!(source = id, "stopped");
     });
 
     SourceHandle { tx }
 }
 
-async fn fetch(common: &SourceCommon, source: &dyn Source, pool: &SqlitePool, events: &Events) {
-    debug!(source = common.id, "fetching");
-    let result = match source.fetch().await {
+async fn fetch(id: &str, source: &dyn Source) -> Result<Vec<crate::sources::SourceItem>, String> {
+    debug!(source = id, "fetching");
+    source.fetch().await.map_err(|error| {
+        warn!(source = id, %error, "fetch failed");
+        error.to_string()
+    })
+}
+
+async fn store(
+    id: &str,
+    result: Result<Vec<crate::sources::SourceItem>, String>,
+    pool: &SqlitePool,
+    events: &Events,
+) {
+    let stored = match result {
         Ok(items) => {
-            debug!(source = common.id, count = items.len(), "fetched");
-            db::replace_items(pool, &common.id, &items, Utc::now()).await
+            debug!(source = id, count = items.len(), "fetched");
+            db::replace_items(pool, id, &items, Utc::now()).await
         }
-        Err(error) => {
-            warn!(source = common.id, %error, "fetch failed");
-            db::record_failure(pool, &common.id, &error.to_string(), Utc::now()).await
-        }
+        Err(error) => db::record_failure(pool, id, &error, Utc::now()).await,
     };
-    if let Err(error) = result {
-        warn!(source = common.id, %error, "failed to store fetch result");
+    if let Err(error) = stored {
+        warn!(source = id, %error, "failed to store fetch result");
     }
     let _ = events.send(Event::SourceUpdated {
-        source_id: common.id.clone(),
+        source_id: id.to_string(),
     });
 }

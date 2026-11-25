@@ -6,42 +6,26 @@ use std::time::Duration;
 
 use axum::http::Method;
 
-use common::{item, start, wait_for};
-
-fn config(interval: &str, idle_interval: &str) -> String {
-    format!(
-        r#"
-        [[contexts]]
-        id = "work"
-        name = "Work"
-
-        [[sources]]
-        id = "a"
-        type = "stub"
-        name = "A"
-        contexts = ["work"]
-        interval = "{interval}"
-        idle_interval = "{idle_interval}"
-        "#
-    )
-}
+use common::{start, wait_for};
 
 #[tokio::test]
-async fn fetches_on_start() {
-    let app = start(&config("1h", "1h")).await;
-    app.source("a").set_items(vec![item("1", 1, None)]);
+async fn fetches_when_added() {
+    let app = start().await;
+    app.add_source("a", &["default"]).await;
     wait_for(|| app.source("a").fetches() >= 1).await;
 }
 
 #[tokio::test]
 async fn polls_at_idle_interval_when_idle() {
-    let app = start(&config("1h", "20ms")).await;
+    let app = start().await;
+    app.add_source_with("a", &["default"], 3_600_000, 20).await;
     wait_for(|| app.source("a").fetches() >= 4).await;
 }
 
 #[tokio::test]
 async fn polls_at_active_interval_when_active() {
-    let app = start(&config("20ms", "1h")).await;
+    let app = start().await;
+    app.add_source_with("a", &["default"], 20, 3_600_000).await;
     wait_for(|| app.source("a").fetches() >= 1).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     // Idle: only the initial fetch.
@@ -53,8 +37,9 @@ async fn polls_at_active_interval_when_active() {
 
 #[tokio::test]
 async fn concurrent_refreshes_complete() {
-    let app = start(&config("1h", "1h")).await;
-    let refreshes = (0..5).map(|_| app.refresh("work"));
+    let app = start().await;
+    app.add_source("a", &["default"]).await;
+    let refreshes = (0..5).map(|_| app.refresh("default"));
     tokio::time::timeout(Duration::from_secs(5), futures::future::join_all(refreshes))
         .await
         .expect("refreshes should complete");

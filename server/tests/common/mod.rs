@@ -11,11 +11,12 @@ use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use chrono::{DateTime, TimeZone, Utc};
 use http_body_util::BodyExt;
-use serde_json::Value;
+use serde_json::{Value, json};
+use sqlx::SqlitePool;
 use tower::ServiceExt;
 
 use dashboard::config::Config;
-use dashboard::sources::{Source, SourceError, SourceItem};
+use dashboard::sources::{Field, FieldKind, Registry, Source, SourceError, SourceItem, SourceType};
 use dashboard::{Workspace, api, db};
 
 /// A source whose results are controlled by the test.
@@ -77,38 +78,125 @@ pub fn item(id: &str, modified: u32, due: Option<u32>) -> SourceItem {
     }
 }
 
+type TestSources = Arc<Mutex<HashMap<String, Arc<TestSource>>>>;
+
+/// A `test` source type whose config is `{ "key": "<name>" }`. Each key gets
+/// its own [`TestSource`], shared between builds so tests can control it.
+fn test_source_type(sources: TestSources) -> SourceType {
+    SourceType::new(
+        "test",
+        "Test",
+        vec![Field {
+            key: "key",
+            label: "Key",
+            kind: FieldKind::Text,
+            required: true,
+            placeholder: None,
+            help: None,
+        }],
+        move |config| {
+            let key = config["key"].as_str().unwrap().to_string();
+            let source = sources
+                .lock()
+                .unwrap()
+                .entry(key)
+                .or_insert_with(TestSource::new)
+                .clone();
+            Ok(source as Arc<dyn Source>)
+        },
+    )
+}
+
 pub struct TestApp {
     pub router: Router,
     pub workspace: Arc<Workspace>,
-    pub sources: HashMap<String, Arc<TestSource>>,
+    pub pool: SqlitePool,
+    test_sources: TestSources,
+    /// Test source key to source id.
+    ids: Mutex<HashMap<String, String>>,
 }
 
-/// Starts an app from the given config, replacing every configured source
-/// with a [`TestSource`].
-pub async fn start(toml: &str) -> TestApp {
+pub async fn start() -> TestApp {
+    start_with("", db::connect_in_memory().await.unwrap()).await
+}
+
+/// Starts an app with the given server config and database.
+pub async fn start_with(toml: &str, pool: SqlitePool) -> TestApp {
     let config = Config::from_toml(toml).unwrap();
-    let pool = db::connect_in_memory().await.unwrap();
+    let test_sources = TestSources::default();
+    let mut registry = Registry::builtin();
+    registry.register(test_source_type(test_sources.clone()));
 
-    let mut sources = HashMap::new();
-    let mut entries: Vec<(_, Arc<dyn Source>)> = Vec::new();
-    for source in &config.sources {
-        let test_source = TestSource::new();
-        sources.insert(source.common.id.clone(), test_source.clone());
-        entries.push((source.common.clone(), test_source));
-    }
-
-    let workspace = Workspace::start(config, entries, pool);
+    let workspace = Workspace::start(config, pool.clone(), registry)
+        .await
+        .unwrap();
     let router = api::router(workspace.clone());
     TestApp {
         router,
         workspace,
-        sources,
+        pool,
+        test_sources,
+        ids: Mutex::new(HashMap::new()),
     }
 }
 
 impl TestApp {
-    pub fn source(&self, id: &str) -> &TestSource {
-        &self.sources[id]
+    /// The test source with the given key.
+    pub fn source(&self, key: &str) -> Arc<TestSource> {
+        self.test_sources.lock().unwrap()[key].clone()
+    }
+
+    pub fn source_exists(&self, key: &str) -> bool {
+        self.test_sources.lock().unwrap().contains_key(key)
+    }
+
+    /// The id of the source created for a test source key.
+    pub fn id(&self, key: &str) -> String {
+        self.ids.lock().unwrap()[key].clone()
+    }
+
+    pub async fn add_context(&self, id: &str) {
+        let (status, body) = self
+            .request(
+                Method::POST,
+                "/api/contexts",
+                Some(json!({ "id": id, "name": id.to_uppercase() })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+    }
+
+    /// Adds a test source shown in `contexts`, returning its id.
+    pub async fn add_source(&self, key: &str, contexts: &[&str]) -> String {
+        self.add_source_with(key, contexts, 3_600_000, 3_600_000)
+            .await
+    }
+
+    pub async fn add_source_with(
+        &self,
+        key: &str,
+        contexts: &[&str],
+        interval_ms: u64,
+        idle_interval_ms: u64,
+    ) -> String {
+        let (status, body) = self
+            .request(
+                Method::POST,
+                "/api/sources",
+                Some(json!({
+                    "type": "test",
+                    "name": format!("Source {key}"),
+                    "contexts": contexts,
+                    "interval_ms": interval_ms,
+                    "idle_interval_ms": idle_interval_ms,
+                    "config": { "key": key },
+                })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        let id = body["id"].as_str().unwrap().to_string();
+        self.ids.lock().unwrap().insert(key.to_string(), id.clone());
+        id
     }
 
     pub async fn request(
@@ -159,17 +247,25 @@ impl TestApp {
         assert_eq!(status, StatusCode::NO_CONTENT);
     }
 
-    /// Ids (`source/item`) of the items returned by a list endpoint.
+    /// Ids (`source key/item`) of the items returned by a list endpoint.
     pub async fn ids(&self, uri: &str) -> Vec<String> {
+        let keys: HashMap<String, String> = self
+            .ids
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(key, id)| (id.clone(), key.clone()))
+            .collect();
         self.get(uri)
             .await
             .as_array()
             .unwrap()
             .iter()
             .map(|i| {
+                let source = i["source_id"].as_str().unwrap();
                 format!(
                     "{}/{}",
-                    i["source_id"].as_str().unwrap(),
+                    keys.get(source).map(String::as_str).unwrap_or(source),
                     i["id"].as_str().unwrap()
                 )
             })

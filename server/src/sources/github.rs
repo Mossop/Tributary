@@ -6,27 +6,56 @@ use chrono::{DateTime, Utc};
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
 use serde::Deserialize;
 
-use super::{Source, SourceError, SourceItem};
+use super::{Field, FieldKind, Source, SourceError, SourceItem, SourceType};
 
 const ICON: &str = "https://github.com/favicon.ico";
+const DEFAULT_API_URL: &str = "https://api.github.com";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct GithubConfig {
     /// A GitHub issue search query, e.g. `is:open is:pr author:@me`.
     pub query: String,
-    /// Environment variable holding the API token.
-    #[serde(default = "default_token_env")]
-    pub token_env: String,
-    #[serde(default = "default_api_url")]
-    pub api_url: String,
+    pub token: String,
+    /// API base URL; empty or absent means public GitHub.
+    #[serde(default)]
+    pub api_url: Option<String>,
 }
 
-fn default_token_env() -> String {
-    "GITHUB_TOKEN".to_string()
-}
-
-fn default_api_url() -> String {
-    "https://api.github.com".to_string()
+pub fn source_type() -> SourceType {
+    SourceType::new(
+        "github",
+        "GitHub search",
+        vec![
+            Field {
+                key: "query",
+                label: "Search query",
+                kind: FieldKind::Text,
+                required: true,
+                placeholder: Some("is:open is:pr author:@me"),
+                help: Some("A GitHub issue and pull request search."),
+            },
+            Field {
+                key: "token",
+                label: "Access token",
+                kind: FieldKind::Secret,
+                required: true,
+                placeholder: None,
+                help: Some("A personal access token with read access."),
+            },
+            Field {
+                key: "api_url",
+                label: "API URL",
+                kind: FieldKind::Url,
+                required: false,
+                placeholder: Some(DEFAULT_API_URL),
+                help: Some("Only needed for GitHub Enterprise."),
+            },
+        ],
+        |config| {
+            let config: GithubConfig = serde_json::from_value(config.clone())?;
+            Ok(std::sync::Arc::new(GithubSource::from_config(&config)?))
+        },
+    )
 }
 
 pub struct GithubSource {
@@ -37,13 +66,13 @@ pub struct GithubSource {
 
 impl GithubSource {
     pub fn from_config(config: &GithubConfig) -> anyhow::Result<Self> {
-        let token = std::env::var(&config.token_env).with_context(|| {
-            format!(
-                "GitHub token environment variable `{}` is not set",
-                config.token_env
-            )
-        })?;
-        Self::new(&config.api_url, &config.query, &token)
+        let api_url = config
+            .api_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+            .unwrap_or(DEFAULT_API_URL);
+        Self::new(api_url, &config.query, &config.token)
     }
 
     pub fn new(api_url: &str, query: &str, token: &str) -> anyhow::Result<Self> {

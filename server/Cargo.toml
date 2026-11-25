@@ -22,6 +22,7 @@ tokio-stream = { version = "0.1.19", features = ["sync"] }
 tower-http = { version = "0.7.1", features = ["fs", "trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.29.3", features = ["v4"] }
 
 [dev-dependencies]
 http-body-util = "0.1.5"

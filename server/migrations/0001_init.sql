@@ -31,3 +31,29 @@ CREATE TABLE source_status (
     last_success INTEGER,
     last_error TEXT
 );
+
+-- `id` is the slug used in URLs. It can be changed, cascading to
+-- source_contexts.
+CREATE TABLE contexts (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    icon TEXT,
+    position INTEGER NOT NULL
+);
+
+-- Settings common to every source type are columns; anything specific to the
+-- source type is in `config` as a JSON object.
+CREATE TABLE sources (
+    id TEXT PRIMARY KEY NOT NULL,
+    type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    interval_ms INTEGER NOT NULL,
+    idle_interval_ms INTEGER NOT NULL,
+    config TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE source_contexts (
+    source_id TEXT NOT NULL REFERENCES sources (id) ON DELETE CASCADE,
+    context_id TEXT NOT NULL REFERENCES contexts (id) ON UPDATE CASCADE ON DELETE CASCADE,
+    PRIMARY KEY (source_id, context_id)
+);

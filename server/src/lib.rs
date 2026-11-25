@@ -1,14 +1,18 @@
 //! Unified task dashboard server.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
+use chrono::Utc;
 use sqlx::SqlitePool;
+use tracing::warn;
 
 use crate::activity::Activity;
-use crate::config::{Config, SourceCommon};
+use crate::config::Config;
 use crate::events::Events;
-use crate::scheduler::SourceHandle;
-use crate::sources::Source;
+use crate::scheduler::{Schedule, SourceHandle};
+use crate::settings::SourceRecord;
+use crate::sources::Registry;
 
 pub mod activity;
 pub mod api;
@@ -16,16 +20,18 @@ pub mod config;
 pub mod db;
 pub mod events;
 pub mod scheduler;
+pub mod settings;
 pub mod sources;
 
 /// A source that is being polled.
-pub struct SourceEntry {
-    pub common: SourceCommon,
+#[derive(Clone)]
+pub struct RunningSource {
     pub icon: String,
     pub handle: SourceHandle,
 }
 
-/// Everything the API needs: configuration, storage and the running sources.
+/// Everything the API needs: configuration, storage, the available source
+/// types and the running sources.
 ///
 /// There is currently a single workspace. When user accounts are added each
 /// user would get their own.
@@ -34,64 +40,86 @@ pub struct Workspace {
     pub pool: SqlitePool,
     pub events: Events,
     pub activity: Arc<Activity>,
-    pub sources: Vec<SourceEntry>,
+    pub registry: Registry,
+    running: Mutex<HashMap<String, RunningSource>>,
 }
 
 impl Workspace {
-    /// Starts polling the given sources. Must be called within a tokio
-    /// runtime. Polling stops when the workspace is dropped.
-    pub fn start(
+    /// Creates the default context if needed and starts polling every stored
+    /// source. Must be called within a tokio runtime. Polling stops when the
+    /// workspace is dropped.
+    pub async fn start(
         config: Config,
-        sources: Vec<(SourceCommon, Arc<dyn Source>)>,
         pool: SqlitePool,
-    ) -> Arc<Self> {
-        let events = events::channel();
+        registry: Registry,
+    ) -> anyhow::Result<Arc<Self>> {
+        settings::ensure_default_context(&pool).await?;
         let activity = Arc::new(Activity::new(config.server.active_timeout));
-        let sources = sources
-            .into_iter()
-            .map(|(common, source)| {
-                let icon = source.icon();
-                let handle = scheduler::spawn(
-                    common.clone(),
-                    source,
-                    pool.clone(),
-                    events.clone(),
-                    activity.clone(),
-                );
-                SourceEntry {
-                    common,
-                    icon,
-                    handle,
-                }
-            })
-            .collect();
-
-        Arc::new(Self {
+        let workspace = Arc::new(Self {
             config,
             pool,
-            events,
+            events: events::channel(),
             activity,
-            sources,
-        })
+            registry,
+            running: Mutex::new(HashMap::new()),
+        });
+        for source in settings::list_sources(&workspace.pool).await? {
+            workspace.run(&source).await;
+        }
+        Ok(workspace)
     }
 
-    pub fn source(&self, id: &str) -> Option<&SourceEntry> {
-        self.sources.iter().find(|s| s.common.id == id)
+    /// Starts polling a source, replacing it if it was already running. If
+    /// the source can't be built the failure is recorded in its status.
+    pub async fn run(&self, record: &SourceRecord) {
+        let built = match self.registry.get(&record.kind) {
+            Some(source_type) => source_type.build(&record.config),
+            None => Err(anyhow::anyhow!("unknown source type `{}`", record.kind)),
+        };
+        match built {
+            Ok(source) => {
+                let running = RunningSource {
+                    icon: source.icon(),
+                    handle: scheduler::spawn(
+                        Schedule {
+                            source_id: record.id.clone(),
+                            interval: record.interval,
+                            idle_interval: record.idle_interval,
+                        },
+                        source,
+                        self.pool.clone(),
+                        self.events.clone(),
+                        self.activity.clone(),
+                    ),
+                };
+                self.running
+                    .lock()
+                    .unwrap()
+                    .insert(record.id.clone(), running);
+            }
+            Err(error) => {
+                warn!(source = record.id, %error, "can't start source");
+                self.stop(&record.id);
+                let message = format!("{error:#}");
+                if let Err(error) =
+                    db::record_failure(&self.pool, &record.id, &message, Utc::now()).await
+                {
+                    warn!(source = record.id, %error, "failed to record status");
+                }
+            }
+        }
     }
 
-    /// The sources displayed in a context.
-    pub fn context_sources(&self, context_id: &str) -> impl Iterator<Item = &SourceEntry> {
-        self.sources
-            .iter()
-            .filter(move |s| s.common.contexts.iter().any(|c| c == context_id))
+    /// Stops polling a source.
+    pub fn stop(&self, id: &str) {
+        self.running.lock().unwrap().remove(id);
     }
-}
 
-/// Builds the source implementations for every configured source.
-pub fn build_sources(config: &Config) -> anyhow::Result<Vec<(SourceCommon, Arc<dyn Source>)>> {
-    config
-        .sources
-        .iter()
-        .map(|source| Ok((source.common.clone(), sources::build_source(source)?)))
-        .collect()
+    pub fn running(&self, id: &str) -> Option<RunningSource> {
+        self.running.lock().unwrap().get(id).cloned()
+    }
+
+    pub fn all_running(&self) -> Vec<RunningSource> {
+        self.running.lock().unwrap().values().cloned().collect()
+    }
 }

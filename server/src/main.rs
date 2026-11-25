@@ -6,7 +6,8 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use dashboard::config::Config;
-use dashboard::{Workspace, api, build_sources, db};
+use dashboard::sources::Registry;
+use dashboard::{Workspace, api, db};
 
 #[derive(Parser)]
 #[command(about = "Unified task dashboard server")]
@@ -29,10 +30,9 @@ async fn main() -> anyhow::Result<()> {
     let pool = db::connect(&config.server.database)
         .await
         .with_context(|| format!("failed to open {}", config.server.database.display()))?;
-    let sources = build_sources(&config)?;
     let listen = config.server.listen;
 
-    let workspace = Workspace::start(config, sources, pool);
+    let workspace = Workspace::start(config, pool, Registry::builtin()).await?;
     let app = api::router(workspace);
 
     let listener = tokio::net::TcpListener::bind(listen)

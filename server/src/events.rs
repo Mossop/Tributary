@@ -10,6 +10,8 @@ pub enum Event {
     SourceUpdated { source_id: String },
     /// The user's state (snooze, due override) for an item changed.
     ItemStateChanged { source_id: String, item_id: String },
+    /// Contexts or sources were added, changed or removed.
+    SettingsChanged,
 }
 
 pub type Events = broadcast::Sender<Event>;
