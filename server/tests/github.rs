@@ -26,7 +26,12 @@ async fn searches_and_maps_items() {
                     "repository_url": "https://api.github.com/repos/owner/repo",
                     "updated_at": "2026-03-04T05:06:07Z",
                     "user": { "login": "alice" },
-                    "pull_request": { "url": "https://api.github.com/repos/owner/repo/pulls/12" },
+                    "state": "open",
+                    "draft": false,
+                    "pull_request": {
+                        "url": "https://api.github.com/repos/owner/repo/pulls/12",
+                        "merged_at": null,
+                    },
                 },
                 {
                     "number": 3,
@@ -35,6 +40,8 @@ async fn searches_and_maps_items() {
                     "repository_url": "https://api.github.com/repos/owner/other",
                     "updated_at": "2026-02-01T00:00:00Z",
                     "user": null,
+                    "state": "closed",
+                    "state_reason": "completed",
                 },
             ],
         })))
@@ -57,13 +64,16 @@ async fn searches_and_maps_items() {
         Some("owner/repo #12 · PR by alice")
     );
     assert_eq!(items[0].due, None);
-    assert_eq!(items[0].icon, None);
+    let icon = items[0].icon.as_deref().unwrap();
+    assert!(icon.starts_with("data:image/svg+xml,%3Csvg fill='%231a7f37' "));
 
     assert_eq!(items[1].id, "owner/other#3");
     assert_eq!(
         items[1].description.as_deref(),
         Some("owner/other #3 · Issue")
     );
+    let icon = items[1].icon.as_deref().unwrap();
+    assert!(icon.starts_with("data:image/svg+xml,%3Csvg fill='%238250df' "));
 }
 
 #[tokio::test]

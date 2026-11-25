@@ -9,6 +9,21 @@ use serde::Deserialize;
 use super::{Field, FieldKind, Source, SourceError, SourceItem, SourceType};
 
 const ICON: &str = "https://github.com/favicon.ico";
+
+// Item icons are GitHub's Octicons (MIT licensed, see `octicons/LICENSE`) in
+// the colours GitHub uses for each state.
+const OPEN: &str = "#1a7f37";
+const DONE: &str = "#8250df";
+const CLOSED: &str = "#d1242f";
+const NEUTRAL: &str = "#59636e";
+
+const PR_OPEN: &str = include_str!("octicons/git-pull-request.svg");
+const PR_DRAFT: &str = include_str!("octicons/git-pull-request-draft.svg");
+const PR_CLOSED: &str = include_str!("octicons/git-pull-request-closed.svg");
+const PR_MERGED: &str = include_str!("octicons/git-merge.svg");
+const ISSUE_OPEN: &str = include_str!("octicons/issue-opened.svg");
+const ISSUE_CLOSED: &str = include_str!("octicons/issue-closed.svg");
+const ISSUE_NOT_PLANNED: &str = include_str!("octicons/skip.svg");
 const DEFAULT_API_URL: &str = "https://api.github.com";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -116,7 +131,16 @@ struct Issue {
     repository_url: String,
     updated_at: DateTime<Utc>,
     user: Option<User>,
-    pull_request: Option<serde_json::Value>,
+    state: String,
+    state_reason: Option<String>,
+    #[serde(default)]
+    draft: bool,
+    pull_request: Option<PullRequest>,
+}
+
+#[derive(Deserialize)]
+struct PullRequest {
+    merged_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -129,8 +153,43 @@ struct ErrorResponse {
     message: String,
 }
 
+/// Makes a `data:` URL for an Octicon SVG drawn in `color`.
+fn octicon(svg: &str, color: &str) -> String {
+    let svg = svg
+        .trim()
+        .replacen("<svg ", &format!("<svg fill=\"{color}\" "), 1);
+    let mut url = String::from("data:image/svg+xml,");
+    for c in svg.chars() {
+        match c {
+            '%' => url.push_str("%25"),
+            '#' => url.push_str("%23"),
+            '<' => url.push_str("%3C"),
+            '>' => url.push_str("%3E"),
+            '"' => url.push('\''),
+            c => url.push(c),
+        }
+    }
+    url
+}
+
 impl Issue {
+    fn icon(&self) -> String {
+        let closed = self.state == "closed";
+        match &self.pull_request {
+            Some(pr) if pr.merged_at.is_some() => octicon(PR_MERGED, DONE),
+            Some(_) if closed => octicon(PR_CLOSED, CLOSED),
+            Some(_) if self.draft => octicon(PR_DRAFT, NEUTRAL),
+            Some(_) => octicon(PR_OPEN, OPEN),
+            None if !closed => octicon(ISSUE_OPEN, OPEN),
+            None => match self.state_reason.as_deref() {
+                Some("not_planned" | "duplicate") => octicon(ISSUE_NOT_PLANNED, NEUTRAL),
+                _ => octicon(ISSUE_CLOSED, DONE),
+            },
+        }
+    }
+
     fn into_item(self) -> SourceItem {
+        let icon = self.icon();
         let repo = self
             .repository_url
             .split_once("/repos/")
@@ -150,7 +209,7 @@ impl Issue {
             id: format!("{repo}#{}", self.number),
             title: self.title,
             url: self.html_url,
-            icon: None,
+            icon: Some(icon),
             modified: self.updated_at,
             description: Some(description),
             due: None,
@@ -191,5 +250,78 @@ impl Source for GithubSource {
 
         let body: SearchResponse = response.json().await?;
         Ok(body.items.into_iter().map(Issue::into_item).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn issue(state: &str, state_reason: Option<&str>) -> Issue {
+        Issue {
+            number: 1,
+            title: "Title".into(),
+            html_url: "https://github.com/owner/repo/issues/1".into(),
+            repository_url: "https://api.github.com/repos/owner/repo".into(),
+            updated_at: DateTime::UNIX_EPOCH,
+            user: None,
+            state: state.into(),
+            state_reason: state_reason.map(Into::into),
+            draft: false,
+            pull_request: None,
+        }
+    }
+
+    fn pr(state: &str, draft: bool, merged: bool) -> Issue {
+        Issue {
+            draft,
+            pull_request: Some(PullRequest {
+                merged_at: merged.then_some(DateTime::UNIX_EPOCH),
+            }),
+            ..issue(state, None)
+        }
+    }
+
+    #[test]
+    fn issue_icons_reflect_state() {
+        assert_eq!(issue("open", None).icon(), octicon(ISSUE_OPEN, OPEN));
+        assert_eq!(
+            issue("open", Some("reopened")).icon(),
+            octicon(ISSUE_OPEN, OPEN)
+        );
+        assert_eq!(
+            issue("closed", Some("completed")).icon(),
+            octicon(ISSUE_CLOSED, DONE)
+        );
+        assert_eq!(issue("closed", None).icon(), octicon(ISSUE_CLOSED, DONE));
+        assert_eq!(
+            issue("closed", Some("not_planned")).icon(),
+            octicon(ISSUE_NOT_PLANNED, NEUTRAL)
+        );
+        assert_eq!(
+            issue("closed", Some("duplicate")).icon(),
+            octicon(ISSUE_NOT_PLANNED, NEUTRAL)
+        );
+    }
+
+    #[test]
+    fn pull_request_icons_reflect_state() {
+        assert_eq!(pr("open", false, false).icon(), octicon(PR_OPEN, OPEN));
+        assert_eq!(pr("open", true, false).icon(), octicon(PR_DRAFT, NEUTRAL));
+        assert_eq!(
+            pr("closed", false, false).icon(),
+            octicon(PR_CLOSED, CLOSED)
+        );
+        assert_eq!(pr("closed", true, false).icon(), octicon(PR_CLOSED, CLOSED));
+        assert_eq!(pr("closed", false, true).icon(), octicon(PR_MERGED, DONE));
+    }
+
+    #[test]
+    fn octicons_are_data_urls() {
+        let url = octicon(r#"<svg a="b"><path d="M1 1Z"/></svg>"#, "#123456");
+        assert_eq!(
+            url,
+            "data:image/svg+xml,%3Csvg fill='%23123456' a='b'%3E%3Cpath d='M1 1Z'/%3E%3C/svg%3E"
+        );
     }
 }
