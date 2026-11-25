@@ -53,6 +53,25 @@ describe("item-row", () => {
     expect(root.querySelector("wa-tag")).toBeNull();
   });
 
+  it("doesn't show the source name", async () => {
+    let row = await render({ item: makeItem() });
+    expect(row.shadowRoot!.querySelector(".meta")!.textContent).not.toContain(
+      "GitHub",
+    );
+  });
+
+  it("links URLs in the description", async () => {
+    let row = await render({
+      item: makeItem({ description: "Notes: https://example.com/doc." }),
+    });
+    let description = row.shadowRoot!.querySelector(".description")!;
+    expect(description.textContent).toBe("Notes: https://example.com/doc.");
+    let link = description.querySelector("a")!;
+    expect(link.getAttribute("href")).toBe("https://example.com/doc");
+    expect(link.target).toBe("_blank");
+    expect(link.rel).toBe("noopener noreferrer");
+  });
+
   it("uses the source icon unless the item has one", async () => {
     let row = await render({ item: makeItem() });
     expect(row.shadowRoot!.querySelector("img")!.getAttribute("src")).toBe(

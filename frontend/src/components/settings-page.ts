@@ -232,7 +232,6 @@ export class SettingsPage extends LitElement {
             <wa-icon class="icon" name=${context.icon ?? "label"}></wa-icon>
             <div class="main">
               <div class="title">${context.name}</div>
-              <div class="meta">/c/${context.id}</div>
             </div>
             <wa-button
               appearance="plain"

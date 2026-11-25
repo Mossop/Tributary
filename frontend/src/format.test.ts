@@ -5,6 +5,7 @@ import {
   effectiveDue,
   fromLocalInput,
   isOverdue,
+  linkify,
   relativeTime,
   snoozePresets,
   toLocalInput,
@@ -121,5 +122,54 @@ describe("local input conversion", () => {
   it("rejects invalid input", () => {
     expect(fromLocalInput("")).toBeNull();
     expect(fromLocalInput("nonsense")).toBeNull();
+  });
+});
+
+describe("linkify", () => {
+  it("leaves text without URLs alone", () => {
+    expect(linkify("owner/repo #1 · PR by alice")).toEqual([
+      { text: "owner/repo #1 · PR by alice" },
+    ]);
+    expect(linkify("")).toEqual([]);
+  });
+
+  it("splits out URLs", () => {
+    expect(
+      linkify("See https://example.com/a?b=1#c and http://x.test too"),
+    ).toEqual([
+      { text: "See " },
+      { url: "https://example.com/a?b=1#c" },
+      { text: " and " },
+      { url: "http://x.test" },
+      { text: " too" },
+    ]);
+    expect(linkify("https://example.com")).toEqual([
+      { url: "https://example.com" },
+    ]);
+  });
+
+  it("leaves trailing punctuation out of URLs", () => {
+    expect(linkify("Go to https://example.com/x.")).toEqual([
+      { text: "Go to " },
+      { url: "https://example.com/x" },
+      { text: "." },
+    ]);
+    expect(linkify("(see https://example.com/x), then")).toEqual([
+      { text: "(see " },
+      { url: "https://example.com/x" },
+      { text: "), then" },
+    ]);
+  });
+
+  it("keeps brackets that belong to the URL", () => {
+    expect(linkify("https://en.wikipedia.org/wiki/Rust_(language)")).toEqual([
+      { url: "https://en.wikipedia.org/wiki/Rust_(language)" },
+    ]);
+  });
+
+  it("only links http and https", () => {
+    expect(linkify("javascript:alert(1) ftp://x")).toEqual([
+      { text: "javascript:alert(1) ftp://x" },
+    ]);
   });
 });

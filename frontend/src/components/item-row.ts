@@ -12,6 +12,7 @@ import {
   absoluteTime,
   effectiveDue,
   isOverdue,
+  linkify,
   relativeTime,
   snoozePresets,
 } from "../format.ts";
@@ -84,6 +85,11 @@ export class ItemRow extends LitElement {
       gap: var(--wa-space-xs) var(--wa-space-s);
       color: var(--wa-color-text-quiet);
       font-size: var(--wa-font-size-s);
+    }
+
+    .description a {
+      color: inherit;
+      overflow-wrap: anywhere;
     }
 
     .actions {
@@ -237,10 +243,20 @@ export class ItemRow extends LitElement {
           >${this.item.title}</a
         >
         <div class="meta">
-          ${this.source ? html`<span>${this.source.name}</span>` : nothing}
           ${
             this.item.description
-              ? html`<span>${this.item.description}</span>`
+              ? html`<span class="description"
+                  >${linkify(this.item.description).map((part) =>
+                    "url" in part
+                      ? html`<a
+                          href=${part.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          >${part.url}</a
+                        >`
+                      : part.text,
+                  )}</span
+                >`
               : nothing
           }
           <span title=${absoluteTime(modified)}

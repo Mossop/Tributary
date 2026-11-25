@@ -86,3 +86,49 @@ export function fromLocalInput(value: string): Date | null {
   let date = new Date(value);
   return isNaN(date.getTime()) ? null : date;
 }
+
+export type TextPart = { text: string } | { url: string };
+
+/** Matches http(s) URLs up to whitespace. */
+const URL_PATTERN = /https?:\/\/[^\s<>"]+/g;
+
+/**
+ * Splits text into plain text and the URLs in it. Punctuation that ends a
+ * sentence or closes a bracket is left off the end of a URL, unless the URL
+ * opened that bracket itself.
+ */
+export function linkify(text: string): TextPart[] {
+  let parts: TextPart[] = [];
+  let last = 0;
+  for (let match of text.matchAll(URL_PATTERN)) {
+    let url = trimUrl(match[0]);
+    let start = match.index;
+    if (start > last) {
+      parts.push({ text: text.slice(last, start) });
+    }
+    parts.push({ url });
+    last = start + url.length;
+  }
+  if (last < text.length) {
+    parts.push({ text: text.slice(last) });
+  }
+  return parts;
+}
+
+function trimUrl(url: string): string {
+  while (url.length > 0) {
+    let end = url[url.length - 1];
+    if (".,;:!?'".includes(end)) {
+      url = url.slice(0, -1);
+    } else if (end == ")" && count(url, "(") < count(url, ")")) {
+      url = url.slice(0, -1);
+    } else {
+      return url;
+    }
+  }
+  return url;
+}
+
+function count(text: string, char: string): number {
+  return text.split(char).length - 1;
+}
