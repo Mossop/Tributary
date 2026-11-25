@@ -1,0 +1,57 @@
+# Copy to config.toml and edit. Every key in [server] is optional.
+
+[server]
+listen = "0.0.0.0:8080"
+database = "data/dashboard.db"
+static_dir = "frontend/dist"
+# With no client activity for this long the dashboard is idle and sources poll
+# at their idle_interval.
+active_timeout = "5m"
+
+# Contexts are separate views, each at /c/<id>. `icon` is a Material Symbol
+# name.
+[[contexts]]
+id = "work"
+name = "Work"
+icon = "work"
+
+[[contexts]]
+id = "personal"
+name = "Personal"
+icon = "home"
+
+# Sources provide items. Every source has an id, a name, the contexts it is
+# shown in, and polling intervals (defaults: 5m active, 30m idle).
+
+[[sources]]
+id = "my-prs"
+type = "github"
+name = "My pull requests"
+contexts = ["work"]
+interval = "5m"
+idle_interval = "30m"
+query = "is:open is:pr author:@me archived:false"
+# Environment variable holding a GitHub token (default GITHUB_TOKEN).
+token_env = "GITHUB_TOKEN"
+# api_url = "https://api.github.com"
+
+[[sources]]
+id = "review-requests"
+type = "github"
+name = "Review requests"
+contexts = ["work"]
+query = "is:open is:pr review-requested:@me archived:false"
+
+# A stub source has fixed items, handy for trying things out.
+[[sources]]
+id = "chores"
+type = "stub"
+name = "Chores"
+contexts = ["personal"]
+
+[[sources.items]]
+id = "bins"
+title = "Put the bins out"
+url = "https://example.com/bins"
+modified = "2026-01-01T09:00:00Z"
+due = "2026-01-07T19:00:00Z"
