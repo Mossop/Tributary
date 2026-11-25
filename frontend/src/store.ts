@@ -1,5 +1,13 @@
 import * as api from "./api.ts";
-import type { Context, Item, ServerEvent, Source, SourceType } from "./api.ts";
+import type {
+  Account,
+  AccountProvider,
+  Context,
+  Item,
+  ServerEvent,
+  Source,
+  SourceType,
+} from "./api.ts";
 import type { Route } from "./route.ts";
 
 /** How often to tell the server we're active and reload while visible. */
@@ -9,6 +17,8 @@ export interface State {
   contexts: Context[];
   sources: Source[];
   sourceTypes: SourceType[];
+  accounts: Account[];
+  providers: AccountProvider[];
   /** Items for the current route (active or snoozed). */
   items: Item[];
   route: Route;
@@ -35,6 +45,8 @@ export class Store extends EventTarget {
     contexts: [],
     sources: [],
     sourceTypes: [],
+    accounts: [],
+    providers: [],
     items: [],
     route: { view: "items", context: null },
     loaded: false,
@@ -81,12 +93,15 @@ export class Store extends EventTarget {
 
     api.pingActivity().catch(() => {});
     try {
-      let [contexts, sources, sourceTypes] = await Promise.all([
-        api.getContexts(),
-        api.getSources(),
-        api.getSourceTypes(),
-      ]);
-      this.update({ contexts, sources, sourceTypes });
+      let [contexts, sources, sourceTypes, accounts, providers] =
+        await Promise.all([
+          api.getContexts(),
+          api.getSources(),
+          api.getSourceTypes(),
+          api.getAccounts(),
+          api.getAccountProviders(),
+        ]);
+      this.update({ contexts, sources, sourceTypes, accounts, providers });
     } catch (error) {
       this.fail(error);
       return;
@@ -210,14 +225,16 @@ export class Store extends EventTarget {
     return this.mutate(api.clearDue(item));
   }
 
-  /** Reloads contexts and sources, leaving a context that no longer exists. */
+  /** Reloads contexts, sources and accounts, leaving a context that no
+   * longer exists. */
   async loadSettings() {
     try {
-      let [contexts, sources] = await Promise.all([
+      let [contexts, sources, accounts] = await Promise.all([
         api.getContexts(),
         api.getSources(),
+        api.getAccounts(),
       ]);
-      this.update({ contexts, sources });
+      this.update({ contexts, sources, accounts });
     } catch (error) {
       this.fail(error);
       return;

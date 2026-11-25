@@ -31,10 +31,35 @@ export interface Source {
 export interface Field {
   key: string;
   label: string;
-  kind: "text" | "url" | "secret";
+  /** `account` holds the id of an account with `provider`; `select` holds
+   * one of the options from `getFieldOptions`. */
+  kind: "text" | "url" | "secret" | "account" | "select";
   required: boolean;
   placeholder: string | null;
   help: string | null;
+  provider: string | null;
+}
+
+export interface FieldOption {
+  value: string;
+  label: string;
+}
+
+/** A connected account with an external service, e.g. Google. */
+export interface Account {
+  id: string;
+  provider: string;
+  /** e.g. the email address. */
+  name: string;
+  /** Source types need access the account hasn't granted; connect it again. */
+  missing_scopes: boolean;
+}
+
+export interface AccountProvider {
+  id: string;
+  name: string;
+  /** Whether the server is set up to connect accounts. */
+  configured: boolean;
 }
 
 export interface SourceType {
@@ -176,6 +201,38 @@ export function deleteContext(id: string) {
 
 export function getSourceTypes() {
   return request<SourceType[]>("GET", "/api/source-types");
+}
+
+/** The options of a select field, given the source's other settings. */
+export function getFieldOptions(
+  type: string,
+  field: string,
+  config: Record<string, unknown>,
+) {
+  return request<FieldOption[]>(
+    "POST",
+    `/api/source-types/${encodeURIComponent(type)}/fields/${encodeURIComponent(field)}/options`,
+    { config },
+  );
+}
+
+export function getAccountProviders() {
+  return request<AccountProvider[]>("GET", "/api/account-providers");
+}
+
+export function getAccounts() {
+  return request<Account[]>("GET", "/api/accounts");
+}
+
+export function deleteAccount(id: string) {
+  return request<void>("DELETE", `/api/accounts/${encodeURIComponent(id)}`);
+}
+
+/** Where to send the browser to connect an account, or to reconnect
+ * `accountId`. The server redirects back to the settings page. */
+export function connectUrl(provider: string, accountId?: string) {
+  let url = `/api/accounts/${encodeURIComponent(provider)}/connect`;
+  return accountId ? `${url}?account=${encodeURIComponent(accountId)}` : url;
 }
 
 function sourcePath(id: string) {

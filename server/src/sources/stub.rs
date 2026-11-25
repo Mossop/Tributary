@@ -15,7 +15,7 @@ pub struct StubConfig {
 }
 
 pub fn source_type() -> SourceType {
-    SourceType::new("stub", "Stub", Vec::new(), |config| {
+    SourceType::new("stub", "Stub", Vec::new(), |config, _| {
         let config: StubConfig = serde_json::from_value(config.clone())?;
         Ok(Arc::new(StubSource::new(config.items)))
     })

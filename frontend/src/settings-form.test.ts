@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { SourceType } from "./api.ts";
-import { initialValues, slugify, sourceSettings } from "./settings-form.ts";
+import type { Account, SourceType } from "./api.ts";
+import {
+  accountsFor,
+  connectError,
+  defaultAccounts,
+  initialValues,
+  slugify,
+  sourceSettings,
+} from "./settings-form.ts";
 import { makeSource } from "./test-helpers.ts";
 
 let github: SourceType = {
@@ -15,6 +22,7 @@ let github: SourceType = {
       required: true,
       placeholder: null,
       help: null,
+      provider: null,
     },
     {
       key: "token",
@@ -23,6 +31,7 @@ let github: SourceType = {
       required: true,
       placeholder: null,
       help: null,
+      provider: null,
     },
     {
       key: "api_url",
@@ -31,6 +40,7 @@ let github: SourceType = {
       required: false,
       placeholder: null,
       help: null,
+      provider: null,
     },
   ],
 };
@@ -93,5 +103,81 @@ describe("sourceSettings", () => {
     );
     expect(settings.type).toBeUndefined();
     expect(settings.config).toEqual({ query: "is:pr", token: "new" });
+  });
+});
+
+let tasks: SourceType = {
+  id: "google-tasks",
+  name: "Google Tasks",
+  fields: [
+    {
+      key: "account",
+      label: "Google account",
+      kind: "account",
+      required: true,
+      placeholder: null,
+      help: null,
+      provider: "google",
+    },
+    {
+      key: "list",
+      label: "Task list",
+      kind: "select",
+      required: true,
+      placeholder: null,
+      help: null,
+      provider: null,
+    },
+  ],
+};
+
+function account(id: string, provider = "google"): Account {
+  return { id, provider, name: `${id}@example.com`, missing_scopes: false };
+}
+
+describe("accounts", () => {
+  it("filters accounts by provider", () => {
+    let accounts = [account("a"), account("b", "other")];
+    expect(accountsFor("google", accounts)).toEqual([account("a")]);
+    expect(accountsFor(null, accounts)).toEqual([]);
+  });
+
+  it("chooses the only account", () => {
+    let values = initialValues(null, "work");
+    expect(defaultAccounts(tasks, values, [account("a")]).fields).toEqual({
+      account: "a",
+    });
+    expect(
+      defaultAccounts(tasks, values, [account("a"), account("b")]).fields,
+    ).toEqual({});
+    expect(
+      defaultAccounts(tasks, values, [account("a", "other")]).fields,
+    ).toEqual({});
+  });
+
+  it("keeps a chosen account", () => {
+    let values = { ...initialValues(null, null), fields: { account: "b" } };
+    expect(defaultAccounts(tasks, values, [account("a")]).fields).toEqual({
+      account: "b",
+    });
+  });
+
+  it("sends account and list settings", () => {
+    let values = {
+      name: "Tasks",
+      contexts: ["work"],
+      fields: { account: "a", list: "*" },
+    };
+    expect(sourceSettings(tasks, values, true).config).toEqual({
+      account: "a",
+      list: "*",
+    });
+  });
+
+  it("reads connect errors", () => {
+    expect(connectError("?error=Access+wasn%27t+granted")).toBe(
+      "Access wasn't granted",
+    );
+    expect(connectError("")).toBeNull();
   });
 });

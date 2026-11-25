@@ -23,10 +23,14 @@ use std::sync::Arc;
 use anyhow::bail;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::accounts::Accounts;
+
 pub mod github;
+pub mod google_tasks;
 pub mod stub;
 
 /// An item produced by a source.
@@ -72,6 +76,10 @@ pub enum FieldKind {
     Url,
     /// Write-only: never returned by the API once set.
     Secret,
+    /// The id of a connected account with the field's `provider`.
+    Account,
+    /// One of the options returned by the source type's options function.
+    Select,
 }
 
 /// A setting specific to a source type.
@@ -83,9 +91,30 @@ pub struct Field {
     pub required: bool,
     pub placeholder: Option<&'static str>,
     pub help: Option<&'static str>,
+    /// For account fields, the account provider (e.g. `google`).
+    pub provider: Option<&'static str>,
 }
 
-type BuildFn = dyn Fn(&Value) -> anyhow::Result<Arc<dyn Source>> + Send + Sync;
+/// A choice for a select field.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FieldOption {
+    pub value: String,
+    pub label: String,
+}
+
+/// What sources can use while building and fetching.
+#[derive(Clone)]
+pub struct SourceContext {
+    pub accounts: Arc<Accounts>,
+}
+
+type BuildFn = dyn Fn(&Value, &SourceContext) -> anyhow::Result<Arc<dyn Source>> + Send + Sync;
+
+/// Lists the options of a select field (`field`) given the rest of a
+/// possibly incomplete config.
+pub type OptionsFn = dyn Fn(&'static str, Value, SourceContext) -> BoxFuture<'static, anyhow::Result<Vec<FieldOption>>>
+    + Send
+    + Sync;
 
 /// A kind of source that can be configured.
 #[derive(Clone)]
@@ -95,7 +124,10 @@ pub struct SourceType {
     /// Whether the type is offered in the settings UI.
     pub listed: bool,
     pub fields: Vec<Field>,
+    /// OAuth scopes needed from the accounts of each provider.
+    pub scopes: Vec<(&'static str, &'static str)>,
     build: Arc<BuildFn>,
+    options: Option<Arc<OptionsFn>>,
 }
 
 impl SourceType {
@@ -103,14 +135,19 @@ impl SourceType {
         id: &str,
         name: &str,
         fields: Vec<Field>,
-        build: impl Fn(&Value) -> anyhow::Result<Arc<dyn Source>> + Send + Sync + 'static,
+        build: impl Fn(&Value, &SourceContext) -> anyhow::Result<Arc<dyn Source>>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         Self {
             id: id.to_string(),
             name: name.to_string(),
             listed: true,
             fields,
+            scopes: Vec::new(),
             build: Arc::new(build),
+            options: None,
         }
     }
 
@@ -119,8 +156,58 @@ impl SourceType {
         self
     }
 
+    /// Declares an OAuth scope needed from `provider` accounts.
+    pub fn with_scope(mut self, provider: &'static str, scope: &'static str) -> Self {
+        self.scopes.push((provider, scope));
+        self
+    }
+
+    /// Sets the function listing the options of select fields.
+    pub fn with_options(
+        mut self,
+        options: impl Fn(
+            &'static str,
+            Value,
+            SourceContext,
+        ) -> BoxFuture<'static, anyhow::Result<Vec<FieldOption>>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        self.options = Some(Arc::new(options));
+        self
+    }
+
+    /// The OAuth scopes needed from `provider` accounts.
+    pub fn scopes_for<'a>(&'a self, provider: &'a str) -> impl Iterator<Item = &'static str> + 'a {
+        self.scopes
+            .iter()
+            .filter(move |(p, _)| *p == provider)
+            .map(|(_, scope)| *scope)
+    }
+
+    /// Lists the options of the select field `key`. None if there is no
+    /// such field.
+    pub async fn options(
+        &self,
+        key: &str,
+        config: Value,
+        context: SourceContext,
+    ) -> Option<anyhow::Result<Vec<FieldOption>>> {
+        let field = self
+            .fields
+            .iter()
+            .find(|f| f.key == key && f.kind == FieldKind::Select)?;
+        let options = self.options.as_ref()?;
+        Some(options(field.key, config, context).await)
+    }
+
     /// Checks required fields and builds the source from its config.
-    pub fn build(&self, config: &Value) -> anyhow::Result<Arc<dyn Source>> {
+    pub fn build(
+        &self,
+        config: &Value,
+        context: &SourceContext,
+    ) -> anyhow::Result<Arc<dyn Source>> {
         for field in self.fields.iter().filter(|f| f.required) {
             let present = match config.get(field.key) {
                 Some(Value::String(s)) => !s.trim().is_empty(),
@@ -131,7 +218,7 @@ impl SourceType {
                 bail!("{} is required", field.label);
             }
         }
-        (self.build)(config)
+        (self.build)(config, context)
     }
 
     fn is_secret(&self, key: &str) -> bool {
@@ -186,6 +273,7 @@ impl Registry {
     pub fn builtin() -> Self {
         let mut registry = Self::default();
         registry.register(github::source_type());
+        registry.register(google_tasks::source_type());
         registry.register(stub::source_type());
         registry
     }
@@ -201,6 +289,16 @@ impl Registry {
 
     pub fn listed(&self) -> impl Iterator<Item = &SourceType> {
         self.types.iter().filter(|t| t.listed)
+    }
+
+    /// Every OAuth scope that listed source types need from `provider`
+    /// accounts.
+    pub fn scopes_for(&self, provider: &str) -> Vec<&'static str> {
+        let mut scopes: Vec<&'static str> =
+            self.listed().flat_map(|t| t.scopes_for(provider)).collect();
+        scopes.sort_unstable();
+        scopes.dedup();
+        scopes
     }
 }
 
@@ -222,6 +320,7 @@ mod tests {
                     required: true,
                     placeholder: None,
                     help: None,
+                    provider: None,
                 },
                 Field {
                     key: "token",
@@ -230,23 +329,89 @@ mod tests {
                     required: true,
                     placeholder: None,
                     help: None,
+                    provider: None,
                 },
             ],
-            |_| Ok(Arc::new(stub::StubSource::new(Vec::new()))),
+            |_, _| Ok(Arc::new(stub::StubSource::new(Vec::new()))),
         )
     }
 
-    #[test]
-    fn build_checks_required_fields() {
+    fn context() -> SourceContext {
+        let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
+        SourceContext {
+            accounts: Arc::new(Accounts::new(pool, None)),
+        }
+    }
+
+    #[tokio::test]
+    async fn build_checks_required_fields() {
         let t = test_type();
+        let cx = context();
         let err = t
-            .build(&json!({ "query": " ", "token": "x" }))
+            .build(&json!({ "query": " ", "token": "x" }), &cx)
             .err()
             .unwrap();
         assert_eq!(err.to_string(), "Query is required");
-        let err = t.build(&json!({ "query": "q" })).err().unwrap();
+        let err = t.build(&json!({ "query": "q" }), &cx).err().unwrap();
         assert_eq!(err.to_string(), "Token is required");
-        assert!(t.build(&json!({ "query": "q", "token": "x" })).is_ok());
+        assert!(t.build(&json!({ "query": "q", "token": "x" }), &cx).is_ok());
+    }
+
+    #[tokio::test]
+    async fn lists_select_options() {
+        let mut t = test_type();
+        t.fields.push(Field {
+            key: "choice",
+            label: "Choice",
+            kind: FieldKind::Select,
+            required: true,
+            placeholder: None,
+            help: None,
+            provider: None,
+        });
+        let t = t.with_options(|key, config, _| {
+            Box::pin(async move {
+                Ok(vec![FieldOption {
+                    value: key.to_string(),
+                    label: config["query"].as_str().unwrap_or_default().to_string(),
+                }])
+            })
+        });
+        let options = t
+            .options("choice", json!({ "query": "q" }), context())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            options,
+            [FieldOption {
+                value: "choice".into(),
+                label: "q".into()
+            }]
+        );
+        assert!(t.options("query", json!({}), context()).await.is_none());
+        assert!(t.options("missing", json!({}), context()).await.is_none());
+    }
+
+    #[test]
+    fn collects_scopes_of_listed_types() {
+        let mut registry = Registry::default();
+        registry.register(
+            test_type()
+                .with_scope("google", "b")
+                .with_scope("other", "x"),
+        );
+        registry.register(
+            SourceType::new("u", "U", vec![], |_, _| bail!("unused"))
+                .with_scope("google", "a")
+                .with_scope("google", "b"),
+        );
+        registry.register(
+            SourceType::new("hidden", "H", vec![], |_, _| bail!("unused"))
+                .with_scope("google", "c")
+                .unlisted(),
+        );
+        assert_eq!(registry.scopes_for("google"), ["a", "b"]);
     }
 
     #[test]

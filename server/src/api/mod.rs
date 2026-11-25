@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde_json::json;
 use tower_http::services::{ServeDir, ServeFile};
@@ -13,6 +13,7 @@ use tower_http::trace::TraceLayer;
 use crate::Workspace;
 use crate::settings::{self, Context, SourceRecord};
 
+mod accounts_api;
 mod items;
 mod settings_api;
 
@@ -36,6 +37,18 @@ pub fn router(workspace: AppState) -> Router {
         .route("/contexts/{context}/snoozed", get(items::context_snoozed))
         .route("/contexts/{context}/refresh", post(items::refresh_context))
         .route("/source-types", get(settings_api::list_source_types))
+        .route(
+            "/source-types/{type}/fields/{field}/options",
+            post(settings_api::field_options),
+        )
+        .route("/account-providers", get(accounts_api::list_providers))
+        .route("/accounts", get(accounts_api::list_accounts))
+        .route("/accounts/{account}", delete(accounts_api::delete_account))
+        .route(
+            "/accounts/google/connect",
+            get(accounts_api::connect_google),
+        )
+        .route("/oauth/google/callback", get(accounts_api::google_callback))
         .route(
             "/sources",
             get(settings_api::list_sources).post(settings_api::create_source),

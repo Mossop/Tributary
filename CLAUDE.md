@@ -12,14 +12,20 @@ frontend in `frontend/`. See README.md for features and configuration.
 
 ## Server layout (`server/src`)
 
-- `config.rs` — `[server]` and `[polling]` TOML + `TRIBUTARY_` env config via
+- `config.rs` — `[server]`, `[polling]` and `[google]` TOML + `TRIBUTARY_` env config via
   figment. Polling intervals are global, not per source or UI configurable.
 - `settings.rs` — contexts and sources in SQLite. Context `id` is the URL slug
   (renames cascade). Sources have generated ids, common columns, and a JSON
   `config` for type specific settings.
 - `sources/mod.rs` — the `Source` trait, `SourceType` (field schema + build
-  fn, secret handling) and `Registry`. `sources/github.rs`, `sources/stub.rs`
-  are implementations; stub is unlisted (tests/dev only).
+  fn, secret handling, OAuth scopes, select options fn) and `Registry`.
+  `sources/github.rs`, `sources/google_tasks.rs`, `sources/stub.rs` are
+  implementations; stub is unlisted (tests/dev only).
+- `accounts.rs` — connected accounts in SQLite (refresh tokens never leave
+  the server) and `Accounts`: cached access tokens and pending OAuth states.
+  Sources get it through `SourceContext`.
+- `google.rs` — Google OAuth client (consent URL, code exchange, refresh,
+  userinfo). Endpoints are configurable so tests use wiremock.
 - `db.rs` — items, item state and source status (sqlx runtime queries; sqlx
   0.9 rejects non-literal SQL). Migrations in `server/migrations`. Timestamps
   are epoch milliseconds. Query functions take `now` explicitly. Sorting lives
@@ -30,7 +36,8 @@ frontend in `frontend/`. See README.md for features and configuration.
 - `activity.rs` — active/idle tracking from client pings.
 - `events.rs` — broadcast events streamed over SSE at `/api/events`. The
   streams end on `Workspace::shutdown` so graceful shutdown doesn't hang.
-- `api/` — HTTP routes (`items.rs`, `settings_api.rs`); also serves
+- `api/` — HTTP routes (`items.rs`, `settings_api.rs`, `accounts_api.rs`
+  including the OAuth connect/callback redirects); also serves
   `static_dir` with SPA fallback.
 - `lib.rs` — `Workspace` ties config, db, events, the registry and the running
   sources together; `run`/`stop` start, restart and stop sources at runtime.
@@ -58,6 +65,7 @@ frontend in `frontend/`. See README.md for features and configuration.
   the API and `source(key)` returns its controllable `TestSource`.
 - Real sources are tested by intercepting HTTP with wiremock (see
   `tests/github.rs`); sources take a configurable API base URL for this.
+  `tests/google.rs` mocks Google's OAuth and Tasks endpoints end to end.
 - Scheduler tests use real time with millisecond intervals.
 - Frontend tests are Vitest + happy-dom. `test-helpers.ts` has `mockFetch` and
   fixtures. Component tests `vi.mock` the Web Awesome component modules

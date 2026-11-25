@@ -1,4 +1,4 @@
-import type { Source, SourceSettings, SourceType } from "./api.ts";
+import type { Account, Source, SourceSettings, SourceType } from "./api.ts";
 
 /** Derives a URL name from a context name, e.g. "Side Projects" → "side-projects". */
 export function slugify(name: string): string {
@@ -66,4 +66,35 @@ export function sourceSettings(
     settings.type = type.id;
   }
   return settings;
+}
+
+/** The accounts that can be chosen for an account field. */
+export function accountsFor(
+  provider: string | null,
+  accounts: Account[],
+): Account[] {
+  return accounts.filter((a) => a.provider == provider);
+}
+
+/** Chooses the account for empty account fields when there is only one
+ * to choose from. */
+export function defaultAccounts(
+  type: SourceType,
+  values: SourceFormValues,
+  accounts: Account[],
+): SourceFormValues {
+  let fields = { ...values.fields };
+  for (let field of type.fields) {
+    let choices = accountsFor(field.provider, accounts);
+    if (field.kind == "account" && !fields[field.key] && choices.length == 1) {
+      fields[field.key] = choices[0].id;
+    }
+  }
+  return { ...values, fields };
+}
+
+/** The error the server reports in the settings URL after connecting an
+ * account failed, e.g. `?error=Access+denied`. */
+export function connectError(search: string): string | null {
+  return new URLSearchParams(search).get("error");
 }

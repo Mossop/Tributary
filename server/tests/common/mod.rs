@@ -93,8 +93,9 @@ fn test_source_type(sources: TestSources) -> SourceType {
             required: true,
             placeholder: None,
             help: None,
+            provider: None,
         }],
-        move |config| {
+        move |config, _| {
             let key = config["key"].as_str().unwrap().to_string();
             let source = sources
                 .lock()

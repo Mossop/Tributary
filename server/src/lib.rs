@@ -8,18 +8,22 @@ use sqlx::SqlitePool;
 use tokio::sync::watch;
 use tracing::warn;
 
+use crate::accounts::Accounts;
 use crate::activity::Activity;
 use crate::config::Config;
 use crate::events::Events;
+use crate::google::GoogleClient;
 use crate::scheduler::{Schedule, SourceHandle};
 use crate::settings::SourceRecord;
-use crate::sources::Registry;
+use crate::sources::{Registry, SourceContext};
 
+pub mod accounts;
 pub mod activity;
 pub mod api;
 pub mod config;
 pub mod db;
 pub mod events;
+pub mod google;
 pub mod scheduler;
 pub mod settings;
 pub mod sources;
@@ -42,6 +46,7 @@ pub struct Workspace {
     pub events: Events,
     pub activity: Arc<Activity>,
     pub registry: Registry,
+    pub accounts: Arc<Accounts>,
     running: Mutex<HashMap<String, RunningSource>>,
     /// Set to true when the server is shutting down.
     shutdown: watch::Sender<bool>,
@@ -58,12 +63,18 @@ impl Workspace {
     ) -> anyhow::Result<Arc<Self>> {
         settings::ensure_default_context(&pool).await?;
         let activity = Arc::new(Activity::new(config.polling.active_timeout));
+        let google = config
+            .google
+            .clone()
+            .map(|google| GoogleClient::new(google, &config.server.public_url));
+        let accounts = Arc::new(Accounts::new(pool.clone(), google));
         let workspace = Arc::new(Self {
             config,
             pool,
             events: events::channel(),
             activity,
             registry,
+            accounts,
             running: Mutex::new(HashMap::new()),
             shutdown: watch::Sender::new(false),
         });
@@ -88,11 +99,18 @@ impl Workspace {
             .await;
     }
 
+    /// What sources get to build and fetch with.
+    pub fn source_context(&self) -> SourceContext {
+        SourceContext {
+            accounts: self.accounts.clone(),
+        }
+    }
+
     /// Starts polling a source, replacing it if it was already running. If
     /// the source can't be built the failure is recorded in its status.
     pub async fn run(&self, record: &SourceRecord) {
         let built = match self.registry.get(&record.kind) {
-            Some(source_type) => source_type.build(&record.config),
+            Some(source_type) => source_type.build(&record.config, &self.source_context()),
             None => Err(anyhow::anyhow!("unknown source type `{}`", record.kind)),
         };
         match built {

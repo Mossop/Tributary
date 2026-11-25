@@ -19,8 +19,9 @@ list, so you can see everything you need to do in one place.
   gear button). Changes take effect immediately, with no server restart. On
   first run there is a single "Default" context, which you can rename.
 
-Currently available source types: GitHub (issue/PR search). There is also a
-stub type with fixed items, used for tests and not offered in settings.
+Currently available source types: GitHub (issue/PR search) and Google Tasks.
+There is also a stub type with fixed items, used for tests and not offered in
+settings.
 
 ## Running
 
@@ -63,12 +64,38 @@ prefixed `TRIBUTARY_`, with `__` between nested keys, e.g.
 listen = "0.0.0.0:8080"
 database = "data/tributary.sqlite"
 static_dir = "frontend/dist"
+public_url = "http://localhost:8080"  # where the dashboard is reached
 
 [polling]                       # all optional; applies to every source
 active = "5m"                   # while the dashboard is in use
 idle = "30m"                    # while it is idle
 active_timeout = "5m"           # idle after this long with no client activity
+
+[google]                        # needed to connect Google accounts
+client_id = "…apps.googleusercontent.com"
+client_secret = "…"             # or set TRIBUTARY_GOOGLE__CLIENT_SECRET
 ```
+
+### Google accounts
+
+Google sources use a Google account connected on the settings page. One
+account can be shared by many sources. To allow connecting accounts:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create a
+   project and enable the APIs for the sources you'll use (the Google Tasks
+   API).
+2. Configure the OAuth consent screen, adding yourself as a test user while
+   the app is in testing.
+3. Create an OAuth client ID of type "Web application" with the authorised
+   redirect URI `<public_url>/api/oauth/google/callback`, e.g.
+   `http://localhost:8080/api/oauth/google/callback`. Google only allows
+   plain `http` for `localhost`; anywhere else needs `https`.
+4. Put the client ID and secret in `[google]`, and set `public_url` if the
+   dashboard isn't at `http://localhost:8080`.
+
+Then use "Connect Google account" in the Accounts section of settings. If a
+source type needing more access is added later, the account is marked as
+needing reconnecting.
 
 ### Source settings
 
@@ -78,6 +105,11 @@ its own settings:
 **GitHub search**: a search query (e.g. `is:open is:pr author:@me`), an access
 token, and optionally an API URL for GitHub Enterprise. Shows up to 100
 results, most recently updated first.
+
+**Google Tasks**: a Google account and a task list, or all lists. Shows
+incomplete tasks; with all lists, each task's description starts with its
+list's name. Google only stores the date of a due time, so tasks are due at
+midday UTC on that date.
 
 Secret settings such as tokens are stored in the database in plain text. They
 are never sent back to the browser; leave the field blank when editing to keep
@@ -103,10 +135,17 @@ Each `SourceItem` has a stable `id`, `title`, `url`, `modified`, and optional
 1. Add a module under `server/src/sources/` with a `Deserialize` config struct
    and the `Source` implementation.
 2. Describe the type with a `SourceType`: an id, a display name, its settings
-   as a list of `Field`s (key, label, kind `text`/`url`/`secret`, required,
-   placeholder, help), and a function building the source from its JSON
-   config. The settings page builds its form from the fields, so no frontend
-   changes are needed. See `github::source_type()`.
+   as a list of `Field`s (key, label, kind, required, placeholder, help), and
+   a function building the source from its JSON config. The settings page
+   builds its form from the fields, so no frontend changes are needed. See
+   `github::source_type()`. Field kinds are:
+   - `text`, `url` and `secret` (write-only) inputs.
+   - `account`: a connected account of the field's `provider`. Declare the
+     OAuth scopes the source needs with `with_scope`, and get access tokens
+     at fetch time from the `SourceContext`'s `accounts`.
+   - `select`: a dropdown whose options come from the function given to
+     `with_options`, which gets the rest of the config (e.g. the chosen
+     account). See `google_tasks::source_type()`.
 3. Register it in `Registry::builtin()`.
 4. Test it by intercepting its HTTP calls with wiremock (see
    `server/tests/github.rs`). Give the source a configurable API base URL so

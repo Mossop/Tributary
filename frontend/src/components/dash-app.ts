@@ -308,6 +308,8 @@ export class DashApp extends LitElement {
         .contexts=${this.state.contexts}
         .sources=${this.state.sources}
         .sourceTypes=${this.state.sourceTypes}
+        .accounts=${this.state.accounts}
+        .providers=${this.state.providers}
       ></settings-page>`;
     }
     return html`

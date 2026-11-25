@@ -55,3 +55,17 @@ CREATE TABLE source_contexts (
     context_id TEXT NOT NULL REFERENCES contexts (id) ON UPDATE CASCADE ON DELETE CASCADE,
     PRIMARY KEY (source_id, context_id)
 );
+
+-- Accounts with external services (currently Google) that sources can use.
+-- `subject` is the provider's stable id for the account and `name` is shown
+-- to the user (the email address). `scopes` are the granted OAuth scopes,
+-- space separated.
+CREATE TABLE accounts (
+    id TEXT PRIMARY KEY NOT NULL,
+    provider TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    name TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    scopes TEXT NOT NULL,
+    UNIQUE (provider, subject)
+);

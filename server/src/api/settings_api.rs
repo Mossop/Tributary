@@ -8,10 +8,11 @@ use serde_json::{Map, Value};
 
 use super::{ApiError, ApiResult, AppState, find_context, find_source};
 use crate::Workspace;
+use crate::accounts;
 use crate::db::{self, SourceStatus};
 use crate::events::Event;
 use crate::settings::{self, Context, SourceRecord};
-use crate::sources::{Field, SourceType};
+use crate::sources::{Field, FieldKind, FieldOption, SourceType};
 
 fn settings_changed(ws: &Workspace) {
     let _ = ws.events.send(Event::SettingsChanged);
@@ -126,6 +127,32 @@ pub async fn list_source_types(State(ws): State<AppState>) -> Json<Vec<SourceTyp
     )
 }
 
+#[derive(Deserialize)]
+pub struct OptionsBody {
+    #[serde(default)]
+    config: Map<String, Value>,
+}
+
+/// The options of a source type's select field, given the rest of the
+/// (possibly incomplete) config.
+pub async fn field_options(
+    State(ws): State<AppState>,
+    Path((kind, field)): Path<(String, String)>,
+    Json(body): Json<OptionsBody>,
+) -> ApiResult<Json<Vec<FieldOption>>> {
+    let source_type = ws
+        .registry
+        .get(&kind)
+        .ok_or_else(|| ApiError::NotFound(format!("unknown source type `{kind}`")))?;
+    let options = source_type
+        .options(&field, Value::Object(body.config), ws.source_context())
+        .await
+        .ok_or_else(|| ApiError::NotFound(format!("unknown select field `{field}`")))?;
+    options
+        .map(Json)
+        .map_err(|error| ApiError::BadRequest(format!("{error:#}")))
+}
+
 #[derive(Serialize)]
 pub struct SourceInfo {
     id: String,
@@ -211,14 +238,43 @@ async fn validate_common(ws: &Workspace, body: &SourceBody) -> ApiResult<()> {
     Ok(())
 }
 
-fn record_from(
+/// Checks that account fields name a connected account of the right
+/// provider.
+async fn validate_accounts(
+    ws: &Workspace,
+    source_type: &SourceType,
+    config: &Value,
+) -> ApiResult<()> {
+    for field in source_type
+        .fields
+        .iter()
+        .filter(|f| f.kind == FieldKind::Account)
+    {
+        let Some(id) = config
+            .get(field.key)
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+        else {
+            continue;
+        };
+        let account = accounts::get_account(&ws.pool, id).await?;
+        if account.is_none_or(|a| Some(a.provider.as_str()) != field.provider) {
+            return Err(ApiError::BadRequest(format!("unknown account `{id}`")));
+        }
+    }
+    Ok(())
+}
+
+async fn record_from(
+    ws: &Workspace,
     id: String,
     source_type: &SourceType,
     body: SourceBody,
     config: Value,
 ) -> ApiResult<SourceRecord> {
+    validate_accounts(ws, source_type, &config).await?;
     source_type
-        .build(&config)
+        .build(&config, &ws.source_context())
         .map_err(|error| ApiError::BadRequest(format!("{error:#}")))?;
     Ok(SourceRecord {
         id,
@@ -252,7 +308,7 @@ pub async fn create_source(
         .clone();
     let config = Value::Object(body.config.clone());
     let id = uuid::Uuid::new_v4().simple().to_string();
-    let record = record_from(id, &source_type, body, config)?;
+    let record = record_from(&ws, id, &source_type, body, config).await?;
     Ok((StatusCode::CREATED, Json(save_and_run(&ws, record).await?)))
 }
 
@@ -274,7 +330,7 @@ pub async fn update_source(
         .ok_or_else(|| ApiError::BadRequest(format!("unknown source type `{}`", stored.kind)))?
         .clone();
     let config = source_type.merge_config(&stored.config, body.config.clone());
-    let record = record_from(id, &source_type, body, config)?;
+    let record = record_from(&ws, id, &source_type, body, config).await?;
     Ok(Json(save_and_run(&ws, record).await?))
 }
 

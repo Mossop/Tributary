@@ -20,6 +20,41 @@ pub struct Config {
     pub server: ServerConfig,
     #[serde(default)]
     pub polling: PollingConfig,
+    /// Needed to connect Google accounts.
+    #[serde(default)]
+    pub google: Option<GoogleConfig>,
+}
+
+/// A Google OAuth client, shared by every Google account and source.
+#[derive(Debug, Clone, Deserialize)]
+pub struct GoogleConfig {
+    pub client_id: String,
+    pub client_secret: String,
+    // Google's endpoints. Only overridden by tests.
+    #[serde(default = "default_google_auth_url")]
+    pub auth_url: String,
+    #[serde(default = "default_google_token_url")]
+    pub token_url: String,
+    #[serde(default = "default_google_userinfo_url")]
+    pub userinfo_url: String,
+    #[serde(default = "default_google_tasks_api_url")]
+    pub tasks_api_url: String,
+}
+
+fn default_google_auth_url() -> String {
+    "https://accounts.google.com/o/oauth2/v2/auth".to_string()
+}
+
+fn default_google_token_url() -> String {
+    "https://oauth2.googleapis.com/token".to_string()
+}
+
+fn default_google_userinfo_url() -> String {
+    "https://openidconnect.googleapis.com/v1/userinfo".to_string()
+}
+
+fn default_google_tasks_api_url() -> String {
+    "https://tasks.googleapis.com/tasks/v1".to_string()
 }
 
 /// How often sources are polled. Applies to every source.
@@ -56,6 +91,8 @@ pub struct ServerConfig {
     pub database: PathBuf,
     /// Directory containing the built frontend.
     pub static_dir: PathBuf,
+    /// The URL the dashboard is reached at, used for OAuth redirects.
+    pub public_url: String,
 }
 
 impl Default for ServerConfig {
@@ -64,6 +101,7 @@ impl Default for ServerConfig {
             listen: ([0, 0, 0, 0], 8080).into(),
             database: PathBuf::from("data/tributary.sqlite"),
             static_dir: PathBuf::from("frontend/dist"),
+            public_url: "http://localhost:8080".to_string(),
         }
     }
 }
@@ -121,9 +159,26 @@ mod tests {
     }
 
     #[test]
+    fn parses_google_config() {
+        let config = Config::from_toml(
+            r#"
+            [google]
+            client_id = "id"
+            client_secret = "secret"
+            "#,
+        )
+        .unwrap();
+        let google = config.google.unwrap();
+        assert_eq!(google.client_id, "id");
+        assert_eq!(google.token_url, "https://oauth2.googleapis.com/token");
+    }
+
+    #[test]
     fn defaults_when_empty() {
         let config = Config::from_toml("").unwrap();
         assert_eq!(config.server.listen, "0.0.0.0:8080".parse().unwrap());
+        assert_eq!(config.server.public_url, "http://localhost:8080");
+        assert!(config.google.is_none());
         assert_eq!(config.polling.active, Duration::from_secs(5 * 60));
         assert_eq!(config.polling.idle, Duration::from_secs(30 * 60));
         assert_eq!(config.polling.active_timeout, Duration::from_secs(5 * 60));

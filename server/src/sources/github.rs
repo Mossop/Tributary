@@ -48,6 +48,7 @@ pub fn source_type() -> SourceType {
                 required: true,
                 placeholder: Some("is:open is:pr author:@me"),
                 help: Some("A GitHub issue and pull request search."),
+                provider: None,
             },
             Field {
                 key: "token",
@@ -56,6 +57,7 @@ pub fn source_type() -> SourceType {
                 required: true,
                 placeholder: None,
                 help: Some("A personal access token with read access."),
+                provider: None,
             },
             Field {
                 key: "api_url",
@@ -64,9 +66,10 @@ pub fn source_type() -> SourceType {
                 required: false,
                 placeholder: Some(DEFAULT_API_URL),
                 help: Some("Only needed for GitHub Enterprise."),
+                provider: None,
             },
         ],
-        |config| {
+        |config, _| {
             let config: GithubConfig = serde_json::from_value(config.clone())?;
             Ok(std::sync::Arc::new(GithubSource::from_config(&config)?))
         },

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { Context, SourceType } from "./api.ts";
+import type { Account, AccountProvider, Context, SourceType } from "./api.ts";
 import type { Route } from "./route.ts";
 import { type EventSourceLike, Store } from "./store.ts";
 import { makeItem, makeSource, mockFetch } from "./test-helpers.ts";
@@ -12,6 +12,19 @@ let contexts: Context[] = [
 
 let sourceTypes: SourceType[] = [
   { id: "github", name: "GitHub search", fields: [] },
+];
+
+let accounts: Account[] = [
+  {
+    id: "a1",
+    provider: "google",
+    name: "me@example.com",
+    missing_scopes: false,
+  },
+];
+
+let providers: AccountProvider[] = [
+  { id: "google", name: "Google", configured: true },
 ];
 
 let work: Route = { view: "items", context: "work" };
@@ -38,6 +51,8 @@ function routes(extra: Record<string, unknown> = {}) {
   return mockFetch({
     "GET /api/contexts": contexts,
     "GET /api/source-types": sourceTypes,
+    "GET /api/accounts": accounts,
+    "GET /api/account-providers": providers,
     "GET /api/sources": [
       makeSource({ id: "gh", contexts: ["work"] }),
       makeSource({ id: "other", contexts: ["home"] }),
@@ -144,10 +159,12 @@ describe("Store", () => {
     expect(events.closed).toBe(true);
   });
 
-  it("loads source types", async () => {
+  it("loads source types and accounts", async () => {
     routes();
     await store.start(work);
     expect(store.state.sourceTypes).toEqual(sourceTypes);
+    expect(store.state.accounts).toEqual(accounts);
+    expect(store.state.providers).toEqual(providers);
   });
 
   it("doesn't load items or refresh in settings", async () => {
@@ -183,5 +200,6 @@ describe("Store", () => {
       expect(store.state.route).toEqual({ view: "items", context: "office" }),
     );
     expect(calls.map((c) => c.url)).toContain("/api/sources");
+    expect(calls.map((c) => c.url)).toContain("/api/accounts");
   });
 });

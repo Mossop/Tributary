@@ -5,6 +5,8 @@
 listen = "0.0.0.0:8080"
 database = "data/tributary.sqlite"
 static_dir = "frontend/dist"
+# Where the dashboard is reached, used for OAuth redirects.
+public_url = "http://localhost:8080"
 
 # How often every source is checked for new items.
 [polling]
@@ -13,3 +15,8 @@ idle = "30m"
 # With no client activity for this long the dashboard is idle and sources poll
 # at the idle interval.
 active_timeout = "5m"
+
+# An OAuth client for connecting Google accounts. See the README.
+# [google]
+# client_id = "...apps.googleusercontent.com"
+# client_secret = "..."

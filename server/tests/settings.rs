@@ -178,7 +178,7 @@ async fn lists_offered_source_types() {
         .map(|t| t["id"].as_str().unwrap())
         .collect();
     // The stub type is not offered; the test type is registered by the tests.
-    assert_eq!(ids, ["github", "test"]);
+    assert_eq!(ids, ["github", "google-tasks", "test"]);
     assert_eq!(types[0]["name"], "GitHub search");
     assert_eq!(
         types[0]["fields"][1],
@@ -189,8 +189,12 @@ async fn lists_offered_source_types() {
             "required": true,
             "placeholder": null,
             "help": "A personal access token with read access.",
+            "provider": null,
         })
     );
+    assert_eq!(types[1]["fields"][0]["kind"], "account");
+    assert_eq!(types[1]["fields"][0]["provider"], "google");
+    assert_eq!(types[1]["fields"][1]["kind"], "select");
 }
 
 fn source_body(fields: Value) -> Value {

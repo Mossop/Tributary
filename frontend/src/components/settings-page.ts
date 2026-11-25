@@ -7,21 +7,30 @@ import "@awesome.me/webawesome/dist/components/dropdown-item/dropdown-item.js";
 import "@awesome.me/webawesome/dist/components/icon/icon.js";
 
 import * as api from "../api.ts";
-import type { Context, Source, SourceType } from "../api.ts";
+import type {
+  Account,
+  AccountProvider,
+  Context,
+  Source,
+  SourceType,
+} from "../api.ts";
 import { parseIcon } from "../icons.ts";
+import { connectError } from "../settings-form.ts";
 import type { Store } from "../store.ts";
 import type { ContextDialog } from "./context-dialog.ts";
 import "./context-dialog.ts";
 import type { SourceDialog } from "./source-dialog.ts";
 import "./source-dialog.ts";
 
-/** Manages contexts and sources. */
+/** Manages contexts, accounts and sources. */
 @customElement("settings-page")
 export class SettingsPage extends LitElement {
   @property({ attribute: false }) store!: Store;
   @property({ attribute: false }) contexts: Context[] = [];
   @property({ attribute: false }) sources: Source[] = [];
   @property({ attribute: false }) sourceTypes: SourceType[] = [];
+  @property({ attribute: false }) accounts: Account[] = [];
+  @property({ attribute: false }) providers: AccountProvider[] = [];
   @state() private error: string | null = null;
   @query("context-dialog") private contextDialog!: ContextDialog;
   @query("source-dialog") private sourceDialog!: SourceDialog;
@@ -86,12 +95,26 @@ export class SettingsPage extends LitElement {
       color: var(--wa-color-danger-on-quiet);
     }
 
+    .warning {
+      color: var(--wa-color-warning-on-quiet);
+    }
+
     .empty {
       padding: var(--wa-space-m);
       border-top: var(--wa-border-width-s) solid var(--wa-color-surface-border);
       color: var(--wa-color-text-quiet);
     }
   `;
+
+  connectedCallback() {
+    super.connectedCallback();
+    // Connecting an account comes back here with any error in the URL.
+    let error = connectError(location.search);
+    if (error) {
+      this.error = error;
+      history.replaceState(history.state, "", location.pathname);
+    }
+  }
 
   /** Runs a settings change, then reloads settings. Errors propagate to the
    * caller (dialogs show them) after being recorded. */
@@ -131,11 +154,22 @@ export class SettingsPage extends LitElement {
     }
   }
 
+  private connect(provider: string, account?: Account) {
+    location.assign(api.connectUrl(provider, account?.id));
+  }
+
+  private deleteAccount(account: Account) {
+    if (confirm(`Remove the account ${account.name}?`)) {
+      this.applyInline(() => api.deleteAccount(account.id));
+    }
+  }
+
   private addSource(type: SourceType) {
     this.sourceDialog.show(
       type,
       null,
       this.contexts,
+      this.accounts,
       this.store.homeRoute().context,
       (settings) => this.apply(() => api.createSource(settings)),
     );
@@ -147,8 +181,13 @@ export class SettingsPage extends LitElement {
       this.error = `Sources of type “${source.type}” can't be edited here.`;
       return;
     }
-    this.sourceDialog.show(type, source, this.contexts, null, (settings) =>
-      this.apply(() => api.updateSource(source.id, settings)),
+    this.sourceDialog.show(
+      type,
+      source,
+      this.contexts,
+      this.accounts,
+      null,
+      (settings) => this.apply(() => api.updateSource(source.id, settings)),
     );
   }
 
@@ -193,6 +232,72 @@ export class SettingsPage extends LitElement {
               @click=${() => this.deleteContext(context)}
             >
               <wa-icon name="delete" label="Delete"></wa-icon>
+            </wa-button>
+          </div>`,
+      )}
+    </section>`;
+  }
+
+  private renderConnect(provider: AccountProvider) {
+    return html`<wa-button
+      appearance="plain"
+      ?disabled=${!provider.configured}
+      title=${
+        provider.configured
+          ? ""
+          : `Set up ${provider.name} in the server configuration first`
+      }
+      @click=${() => this.connect(provider.id)}
+    >
+      <wa-icon slot="start" name="add"></wa-icon>
+      Connect ${provider.name} account
+    </wa-button>`;
+  }
+
+  private renderAccounts() {
+    let providerNames = new Map(this.providers.map((p) => [p.id, p.name]));
+    return html`<section>
+      <div class="section-header">
+        <h2>Accounts</h2>
+        ${this.providers.map((provider) => this.renderConnect(provider))}
+      </div>
+      ${
+        this.accounts.length == 0
+          ? html`<div class="empty">
+              No accounts yet. Some sources need one to get your data.
+            </div>`
+          : nothing
+      }
+      ${this.accounts.map(
+        (account) =>
+          html`<div class="row">
+            <wa-icon class="icon" name="account_circle"></wa-icon>
+            <div class="main">
+              <div class="title">${account.name}</div>
+              <div class="meta">
+                ${providerNames.get(account.provider) ?? account.provider}
+              </div>
+              ${
+                account.missing_scopes
+                  ? html`<div class="meta warning">
+                      Needs reconnecting to give access to every source type.
+                    </div>`
+                  : nothing
+              }
+            </div>
+            <wa-button
+              appearance="plain"
+              title="Reconnect"
+              @click=${() => this.connect(account.provider, account)}
+            >
+              <wa-icon name="sync" label="Reconnect"></wa-icon>
+            </wa-button>
+            <wa-button
+              appearance="plain"
+              title="Remove"
+              @click=${() => this.deleteAccount(account)}
+            >
+              <wa-icon name="delete" label="Remove"></wa-icon>
             </wa-button>
           </div>`,
       )}
@@ -292,7 +397,7 @@ export class SettingsPage extends LitElement {
             </wa-callout>`
           : nothing
       }
-      ${this.renderContexts()} ${this.renderSources()}
+      ${this.renderContexts()} ${this.renderAccounts()} ${this.renderSources()}
       <context-dialog></context-dialog>
       <source-dialog></source-dialog>
     `;
