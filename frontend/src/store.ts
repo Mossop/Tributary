@@ -9,7 +9,7 @@ import type {
   Source,
   SourceType,
 } from "./api.ts";
-import { toggleKind } from "./kinds.ts";
+import { toggleKind, visibleItems } from "./kinds.ts";
 import type { Route } from "./route.ts";
 
 /** Identifies an item across sources. */
@@ -28,6 +28,8 @@ export interface State {
   providers: AccountProvider[];
   /** Items for the current route (active or snoozed). */
   items: Item[];
+  /** The current context's snoozed items, for counting them. */
+  snoozed: Item[];
   route: Route;
   /** Items with a quick action in progress, as `itemKey`s. */
   busy: string[];
@@ -57,6 +59,7 @@ export class Store extends EventTarget {
     accounts: [],
     providers: [],
     items: [],
+    snoozed: [],
     route: { view: "items", context: null },
     busy: [],
     loaded: false,
@@ -169,6 +172,12 @@ export class Store extends EventTarget {
     return null;
   }
 
+  /** How many items are snoozed in the current context, not counting
+   * hidden kinds. */
+  snoozedCount(): number {
+    return visibleItems(this.state.snoozed, this.hiddenKinds()).length;
+  }
+
   /** The kinds hidden in the current context. */
   hiddenKinds(): ItemKind[] {
     let context = this.state.contexts.find(
@@ -213,7 +222,7 @@ export class Store extends EventTarget {
     if (route.context != null) {
       this.lastContext = route.context;
     }
-    this.update({ route, items: [] });
+    this.update({ route, items: [], snoozed: [] });
     await this.loadItems();
   }
 
@@ -224,12 +233,13 @@ export class Store extends EventTarget {
     }
     let sequence = ++this.loadSequence;
     try {
-      let items = await (view == "snoozed"
-        ? api.getSnoozed(context)
-        : api.getItems(context));
+      let [items, snoozed] =
+        view == "snoozed"
+          ? await api.getSnoozed(context).then((items) => [items, items])
+          : await Promise.all([api.getItems(context), api.getSnoozed(context)]);
       // Ignore responses that were overtaken by a later load.
       if (sequence == this.loadSequence) {
-        this.update({ items, error: null });
+        this.update({ items, snoozed, error: null });
       }
     } catch (error) {
       this.fail(error);

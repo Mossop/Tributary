@@ -151,6 +151,7 @@ describe("Store", () => {
     expect(requests).toEqual([
       "POST /api/items/gh/inbox%2Ft1/actions/complete",
       "GET /api/contexts/work/items",
+      "GET /api/contexts/work/snoozed",
     ]);
   });
 
@@ -210,6 +211,33 @@ describe("Store", () => {
     expect(store.state.error).toBe("database error");
   });
 
+  it("counts snoozed items in the context", async () => {
+    routes({
+      "GET /api/contexts/work/snoozed": [
+        makeItem({ id: "1", kind: "task", snoozed_forever: true }),
+        makeItem({ id: "2", kind: "patch", snoozed_forever: true }),
+      ],
+    });
+    await store.start(work);
+    expect(store.state.items).toEqual([makeItem()]);
+    expect(store.snoozedCount()).toBe(2);
+
+    // Hidden kinds aren't counted.
+    await store.toggleKind("patch");
+    expect(store.snoozedCount()).toBe(1);
+  });
+
+  it("reuses the snoozed items in the snoozed view", async () => {
+    let calls = routes();
+    await store.start({ view: "snoozed", context: "work" });
+    expect(store.snoozedCount()).toBe(1);
+    expect(
+      calls
+        .filter((c) => c.url.startsWith("/api/contexts/work/"))
+        .map((c) => c.url),
+    ).not.toContain("/api/contexts/work/items");
+  });
+
   it("snoozes and reloads", async () => {
     let calls = routes();
     await store.start(work);
@@ -219,6 +247,7 @@ describe("Store", () => {
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       "PUT /api/items/gh/owner%2Frepo%231/snooze",
       "GET /api/contexts/work/items",
+      "GET /api/contexts/work/snoozed",
     ]);
   });
 

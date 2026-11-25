@@ -1,5 +1,6 @@
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
+import "@awesome.me/webawesome/dist/components/badge/badge.js";
 import "@awesome.me/webawesome/dist/components/button/button.js";
 import "@awesome.me/webawesome/dist/components/callout/callout.js";
 import "@awesome.me/webawesome/dist/components/dropdown/dropdown.js";
@@ -251,6 +252,13 @@ export class AppShell extends LitElement {
             >
               <wa-icon slot="start" name="snooze"></wa-icon>
               Snoozed
+              ${
+                this.store.snoozedCount() > 0
+                  ? html`<wa-badge slot="end" pill variant="neutral"
+                      >${this.store.snoozedCount()}</wa-badge
+                    >`
+                  : nothing
+              }
             </wa-button>`
       }
       <wa-button
