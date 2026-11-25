@@ -1,0 +1,7 @@
+.git
+.jj
+data
+config.toml
+server/target
+frontend/node_modules
+frontend/dist

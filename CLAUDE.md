@@ -25,6 +25,17 @@ frontend in `frontend/`. See README.md for features and configuration.
 - `lib.rs` — `Workspace` ties config, db, events and running sources together.
   It is the seam for future per-user state.
 
+## Frontend layout (`frontend/src`)
+
+- `api.ts` — typed API client; `store.ts` — state, SSE subscription, activity
+  pings; `route.ts` — `/c/<context>[/snoozed]` URLs; `format.ts` — date helpers.
+- `components/` — `dash-app` (shell), `item-row`, `date-dialog`.
+- `icons.ts` registers Material Symbols as Web Awesome's default icon library
+  (served from node_modules in dev, copied to `dist/material-symbols` on build).
+- Style: `let` everywhere except module-level constants (ESLint `prefer-const`
+  is off for this reason); `==` unless coercion matters. Import with `.ts`
+  extensions.
+
 ## Testing
 
 - Server integration tests in `server/tests/` use `common::start`, which
@@ -32,6 +43,9 @@ frontend in `frontend/`. See README.md for features and configuration.
 - Real sources are tested by intercepting HTTP with wiremock (see
   `tests/github.rs`); sources take a configurable API base URL for this.
 - Scheduler tests use real time with millisecond intervals.
+- Frontend tests are Vitest + happy-dom. `test-helpers.ts` has `mockFetch` and
+  fixtures. Component tests `vi.mock` the Web Awesome component modules
+  because happy-dom lacks form-associated custom element support.
 
 ## Scope notes
 
