@@ -21,8 +21,10 @@ frontend in `frontend/`. See README.md for features and configuration.
   `config` for type specific settings.
 - `sources/mod.rs` — the `Source` trait, `SourceType` (field schema + build
   fn, secret handling, OAuth scopes, select options fn) and `Registry`.
-  `sources/github.rs`, `sources/google_tasks.rs`, `sources/stub.rs` are
-  implementations; stub is unlisted (tests/dev only).
+  `sources/github.rs`, `sources/google_tasks.rs`, `sources/phabricator/`
+  (`conduit.rs` is the Conduit client; the review rules are in
+  `review_reason`) and `sources/stub.rs` are implementations; stub is
+  unlisted (tests/dev only).
 - `accounts.rs` — connected accounts in SQLite (`secret` is a Google refresh
   token or a GitHub access token and never leaves the server) and
   `Accounts`: Google access tokens, GitHub credentials, revocations and
@@ -58,7 +60,7 @@ frontend in `frontend/`. See README.md for features and configuration.
 - `components/` — `app-shell` (shell), `item-row`, `date-dialog`,
   `settings-page`, `context-dialog`, `source-dialog` (form generated from the
   source type's fields), `confirm-dialog` (asks before an action and shows its
-  error; use it rather than `window.confirm`), `github-account-dialog` (token
+  error; use it rather than `window.confirm`), `token-account-dialog` (token
   entry).
 - `icons.ts` registers Material Symbols as Web Awesome's default icon library
   (served from node_modules in dev, copied to `dist/material-symbols` on build).

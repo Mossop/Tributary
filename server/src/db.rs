@@ -386,6 +386,7 @@ mod tests {
             id: "complete".into(),
             label: "Mark complete".into(),
             icon: "symbol:check_circle".into(),
+            url: None,
         };
         let with_action = SourceItem {
             actions: vec![action.clone()],

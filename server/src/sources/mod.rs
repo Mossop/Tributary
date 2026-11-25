@@ -31,6 +31,7 @@ use crate::accounts::Accounts;
 
 pub mod github;
 pub mod google_tasks;
+pub mod phabricator;
 pub mod stub;
 
 /// What kind of thing an item is. Every item is one of these, so the
@@ -96,6 +97,10 @@ pub struct QuickAction {
     pub label: String,
     /// Either a URL or `symbol:<name>` for a Material Symbol.
     pub icon: String,
+    /// Makes the action a link: the dashboard opens this URL in a new tab
+    /// instead of asking the source to perform the action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -329,6 +334,7 @@ impl Registry {
         let mut registry = Self::default();
         registry.register(github::source_type());
         registry.register(google_tasks::source_type());
+        registry.register(phabricator::source_type());
         registry.register(stub::source_type());
         registry
     }

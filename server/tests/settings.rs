@@ -229,7 +229,7 @@ async fn lists_offered_source_types() {
         .map(|t| t["id"].as_str().unwrap())
         .collect();
     // The stub type is not offered; the test type is registered by the tests.
-    assert_eq!(ids, ["github", "google-tasks", "test"]);
+    assert_eq!(ids, ["github", "google-tasks", "phabricator", "test"]);
     assert_eq!(types[0]["name"], "GitHub search");
     assert_eq!(
         types[0]["fields"][0],

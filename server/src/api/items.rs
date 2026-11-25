@@ -141,7 +141,8 @@ pub async fn perform_action(
     let actions = db::item_actions(&ws.pool, &source, &item)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("unknown item `{item}`")))?;
-    if !actions.iter().any(|a| a.id == action) {
+    // Link actions are opened by the browser; there's nothing to perform.
+    if !actions.iter().any(|a| a.id == action && a.url.is_none()) {
         return Err(ApiError::NotFound(format!("unknown action `{action}`")));
     }
     let running = ws

@@ -151,6 +151,7 @@ impl Task {
                 id: COMPLETE.to_string(),
                 label: "Mark complete".to_string(),
                 icon: "symbol:check_circle".to_string(),
+                url: None,
             }],
         }
     }

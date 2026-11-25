@@ -18,8 +18,8 @@ import { parseIcon } from "../icons.ts";
 import { connectError, sourcesUsing } from "../settings-form.ts";
 import type { ConfirmDialog } from "./confirm-dialog.ts";
 import "./confirm-dialog.ts";
-import type { GithubAccountDialog } from "./github-account-dialog.ts";
-import "./github-account-dialog.ts";
+import type { TokenAccountDialog } from "./token-account-dialog.ts";
+import "./token-account-dialog.ts";
 import type { Store } from "../store.ts";
 import type { ContextDialog } from "./context-dialog.ts";
 import "./context-dialog.ts";
@@ -48,7 +48,7 @@ export class SettingsPage extends LitElement {
   @query("context-dialog") private contextDialog!: ContextDialog;
   @query("source-dialog") private sourceDialog!: SourceDialog;
   @query("confirm-dialog") private confirmDialog!: ConfirmDialog;
-  @query("github-account-dialog") private githubDialog!: GithubAccountDialog;
+  @query("token-account-dialog") private tokenDialog!: TokenAccountDialog;
 
   static styles = css`
     :host {
@@ -169,7 +169,7 @@ export class SettingsPage extends LitElement {
   private connect(provider: string, account?: Account) {
     let info = this.providers.find((p) => p.id == provider);
     if (info?.connect == "token") {
-      this.githubDialog.show(account ?? null, (settings) =>
+      this.tokenDialog.show(info, account ?? null, (settings) =>
         this.apply(() => api.addTokenAccount(provider, settings)),
       );
     } else {
@@ -465,7 +465,7 @@ export class SettingsPage extends LitElement {
       <context-dialog></context-dialog>
       <source-dialog></source-dialog>
       <confirm-dialog></confirm-dialog>
-      <github-account-dialog></github-account-dialog>
+      <token-account-dialog></token-account-dialog>
     `;
   }
 }

@@ -417,3 +417,26 @@ async fn reports_failed_quick_actions() {
     assert_eq!(body["error"], "no permission");
     assert_eq!(app.ids("/api/contexts/work/items").await, ["a/1"]);
 }
+
+#[tokio::test]
+async fn link_actions_are_not_performed() {
+    let app = setup().await;
+    let mut linked = item_with_action("1", 1);
+    linked.actions[0].url = Some("https://example.com/land".to_string());
+    app.source("a").set_items(vec![linked]);
+    app.refresh("work").await;
+
+    let items = app.get("/api/contexts/work/items").await;
+    assert_eq!(items[0]["actions"][0]["url"], "https://example.com/land");
+
+    let (status, body) = app
+        .request(
+            Method::POST,
+            &item_path(&app, "a", "1", "actions/done"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["error"], "unknown action `done`");
+    assert!(app.source("a").performed().is_empty());
+}

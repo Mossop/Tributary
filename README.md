@@ -26,7 +26,8 @@ list, so you can see everything you need to do in one place.
   account that needs reconnecting. Changes take effect immediately, with no server restart. On
   first run there is a single "Default" context, which you can rename.
 
-Currently available source types: GitHub (issue/PR search) and Google Tasks.
+Currently available source types: GitHub (issue/PR search), Google Tasks and
+Phabricator (patches to review, to work on and ready to land).
 There is also a stub type with fixed items, used for tests and not offered in
 settings.
 
@@ -106,6 +107,14 @@ can't read private repositories without write access to all of them either,
 need an app registered on every GitHub host, and are blocked by
 organisations that restrict third-party apps until an owner approves them.
 
+### Phabricator accounts
+
+Phabricator sources use a Phabricator account, added in settings ("Add
+account" → Phabricator) with a Conduit API token: in Phabricator, open your
+settings, then Conduit API Tokens, and generate one. The account is named
+after your Phabricator username. It defaults to Mozilla's Phabricator; give
+an API URL (e.g. `https://phabricator.example.com/api`) for another instance.
+
 ### Google accounts
 
 Google sources use a Google account connected on the settings page. One
@@ -144,6 +153,20 @@ midday UTC on that date. Tasks have a "Mark complete" quick action, which
 needs read and write access to Google Tasks; accounts connected before it was
 added show "Needs reconnecting" until reconnected.
 
+**Phabricator**: a Phabricator account and which patches to show:
+
+- **Patches to review**: revisions needing review where review is asked of
+  you, or of a group you're in. Revisions you've already accepted or
+  requested changes on are left out until they're updated. A group's request
+  is ignored when another member of that group is a reviewer themselves (and
+  hasn't resigned). Your own revisions are left out.
+- **Patches to work on**: your revisions that are drafts, need revision or
+  have changes planned.
+- **Patches ready to land**: your accepted revisions, each with an "Open in
+  Lando" quick action. Lando has no API to tell whether a revision is already
+  queued for landing, so queued revisions stay listed until they land and
+  Phabricator closes them.
+
 Account tokens and secret source settings are stored in the database in
 plain text. They are never sent back to the browser; leave a secret field
 blank when editing to keep the saved value.
@@ -168,7 +191,9 @@ Each `SourceItem` has a stable `id`, a `kind` (`ItemKind::Task`, `Issue` or
 `Patch`), `title`, `url`, `modified`, and optional
 `description`, `due`, `icon` (used instead of the source's icon) and
 `actions`. Each quick action has an `id` passed to `perform`, a `label` and
-an `icon`; the dashboard refreshes the source after performing one. An item's
+an `icon`; the dashboard refreshes the source after performing one. A quick
+action with a `url` is a link instead: the dashboard opens it in a new tab
+and `perform` isn't called. An item's
 `id` should contain whatever `perform` needs, e.g. `list/task` for Google
 Tasks.
 

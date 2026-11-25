@@ -151,6 +151,31 @@ describe("item-row", () => {
     expect(actions).toEqual([{ action: "quick", item, id: "complete" }]);
   });
 
+  it("opens link actions in a new tab", async () => {
+    let item = makeItem({
+      actions: [
+        {
+          id: "lando",
+          label: "Open in Lando",
+          icon: "symbol:flight_takeoff",
+          url: "https://lando.moz.tools/D1/",
+        },
+      ],
+    });
+    let row = await render({ item });
+    let actions: ItemAction[] = [];
+    row.addEventListener("item-action", (e) => actions.push(e.detail));
+
+    let button = row.shadowRoot!.querySelector<HTMLElement>(
+      "wa-button[title='Open in Lando']",
+    )!;
+    expect(button.getAttribute("href")).toBe("https://lando.moz.tools/D1/");
+    expect(button.getAttribute("target")).toBe("_blank");
+    expect(button.getAttribute("rel")).toBe("noopener noreferrer");
+    button.click();
+    expect(actions).toEqual([]);
+  });
+
   it("shows quick actions in progress", async () => {
     let item = makeItem({
       actions: [

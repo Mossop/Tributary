@@ -117,6 +117,7 @@ pub fn item_with_action(id: &str, modified: u32) -> SourceItem {
             id: "done".to_string(),
             label: "Done".to_string(),
             icon: "symbol:check".to_string(),
+            url: None,
         }],
         ..item(id, modified, None)
     }

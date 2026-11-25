@@ -160,7 +160,7 @@ impl GithubSource {
     }
 
     async fn search(&self) -> anyhow::Result<Vec<SourceItem>> {
-        let (account, token) = self.accounts.github(&self.account).await?;
+        let (account, token) = self.accounts.token(&self.account, GITHUB, "GitHub").await?;
         let api_url = api_url(account.api_url.as_deref());
         let response = self
             .client

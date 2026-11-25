@@ -15,6 +15,7 @@ use crate::google::{GoogleClient, GoogleError};
 
 pub const GOOGLE: &str = "google";
 pub const GITHUB: &str = "github";
+pub const PHABRICATOR: &str = "phabricator";
 
 /// How long a connect attempt can take before its state expires.
 const STATE_LIFETIME: Duration = Duration::from_secs(10 * 60);
@@ -193,17 +194,23 @@ impl Accounts {
         self.revoked.lock().unwrap().remove(account_id);
     }
 
-    /// A GitHub account's access token and API URL.
-    pub async fn github(&self, account_id: &str) -> anyhow::Result<(Account, String)> {
+    /// A token account (e.g. GitHub) and its token. `provider_name` is used
+    /// in errors, e.g. "GitHub".
+    pub async fn token(
+        &self,
+        account_id: &str,
+        provider: &str,
+        provider_name: &str,
+    ) -> anyhow::Result<(Account, String)> {
         let account = get_account(&self.pool, account_id)
             .await?
             .ok_or_else(|| anyhow!("the account was removed"))?;
-        if account.provider != GITHUB {
-            bail!("`{}` isn't a GitHub account", account.name);
+        if account.provider != provider {
+            bail!("`{}` isn't a {provider_name} account", account.name);
         }
         if self.is_revoked(account_id) {
             bail!(
-                "GitHub account {} needs reconnecting in settings",
+                "{provider_name} account {} needs reconnecting in settings",
                 account.name
             );
         }

@@ -72,6 +72,17 @@ async function render(sources = [makeSource()]) {
         icon: "https://github.com/favicon.ico",
         connect: "token",
         configured: true,
+        token_hint: "A personal access token.",
+        api_url_placeholder: "https://api.github.com",
+      },
+      {
+        id: "phabricator",
+        name: "Phabricator",
+        icon: "https://phab.test/favicon",
+        connect: "token",
+        configured: true,
+        token_hint: "A Conduit API token.",
+        api_url_placeholder: "https://phabricator.services.mozilla.com/api",
       },
     ],
   });
@@ -147,7 +158,7 @@ describe("settings-page", () => {
       .dispatchEvent(
         new CustomEvent("wa-select", { detail: { item: { value: "github" } } }),
       );
-    let dialog = page.shadowRoot!.querySelector("github-account-dialog")!;
+    let dialog = page.shadowRoot!.querySelector("token-account-dialog")!;
     await dialog.updateComplete;
     let waDialog = dialog.shadowRoot!.querySelector("wa-dialog")!;
     expect(waDialog.getAttribute("label")).toBe("Add GitHub account");
@@ -186,7 +197,7 @@ describe("settings-page", () => {
       .dispatchEvent(
         new CustomEvent("wa-select", { detail: { item: { value: "github" } } }),
       );
-    let dialog = page.shadowRoot!.querySelector("github-account-dialog")!;
+    let dialog = page.shadowRoot!.querySelector("token-account-dialog")!;
     await dialog.updateComplete;
     dialog
       .shadowRoot!.querySelector<HTMLElement>("wa-button[variant='brand']")!
@@ -199,6 +210,41 @@ describe("settings-page", () => {
     expect(
       dialog.shadowRoot!.querySelector("wa-dialog")!.hasAttribute("open"),
     ).toBe(true);
+  });
+
+  it("adds Phabricator accounts with its own hints", async () => {
+    let calls = mockFetch();
+    let { page, store } = await render();
+    page.shadowRoot!.querySelector("wa-dropdown")!.dispatchEvent(
+      new CustomEvent("wa-select", {
+        detail: { item: { value: "phabricator" } },
+      }),
+    );
+    let dialog = page.shadowRoot!.querySelector("token-account-dialog")!;
+    await dialog.updateComplete;
+    let root = dialog.shadowRoot!;
+    expect(root.querySelector("wa-dialog")!.getAttribute("label")).toBe(
+      "Add Phabricator account",
+    );
+    let [token, apiUrl] = [
+      ...root.querySelectorAll<HTMLInputElement>("wa-input"),
+    ];
+    expect(token.getAttribute("hint")).toBe("A Conduit API token.");
+    expect(apiUrl.getAttribute("placeholder")).toBe(
+      "https://phabricator.services.mozilla.com/api",
+    );
+
+    token.value = "api-abc";
+    token.dispatchEvent(new Event("input"));
+    root.querySelector<HTMLElement>("wa-button[variant='brand']")!.click();
+    await vi.waitFor(() => expect(store.loadSettings).toHaveBeenCalled());
+    expect(calls).toEqual([
+      {
+        method: "POST",
+        url: "/api/accounts/phabricator",
+        body: { token: "api-abc", api_url: null },
+      },
+    ]);
   });
 
   it("asks before deleting a source", async () => {

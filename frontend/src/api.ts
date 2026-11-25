@@ -78,6 +78,10 @@ export interface AccountProvider {
   connect: "oauth" | "token";
   /** Whether the server is set up to connect accounts. */
   configured: boolean;
+  /** For token providers: how to get a suitable token. */
+  token_hint?: string;
+  /** For token providers: the default API URL. */
+  api_url_placeholder?: string;
 }
 
 export interface SourceType {
@@ -101,6 +105,9 @@ export interface QuickAction {
   label: string;
   /** A URL, or `symbol:<name>` for a Material Symbol. */
   icon: string;
+  /** Makes the action a link to open in a new tab, rather than something
+   * for the server to perform. */
+  url?: string;
 }
 
 export interface Item {

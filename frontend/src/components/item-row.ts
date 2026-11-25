@@ -147,6 +147,21 @@ export class ItemRow extends LitElement {
 
   private renderQuickAction(action: QuickAction) {
     let icon = parseIcon(action.icon);
+    let content =
+      "symbol" in icon
+        ? html`<wa-icon name=${icon.symbol} label=${action.label}></wa-icon>`
+        : html`<img class="icon" src=${icon.url} alt=${action.label} />`;
+    if (action.url) {
+      // A link: opened by the browser, nothing for the server to do.
+      return html`<wa-button
+        appearance="plain"
+        title=${action.label}
+        href=${action.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        >${content}</wa-button
+      >`;
+    }
     return html`<wa-button
       appearance="plain"
       title=${action.label}
@@ -155,11 +170,7 @@ export class ItemRow extends LitElement {
       @click=${() =>
         this.fire({ action: "quick", item: this.item, id: action.id })}
     >
-      ${
-        "symbol" in icon
-          ? html`<wa-icon name=${icon.symbol} label=${action.label}></wa-icon>`
-          : html`<img class="icon" src=${icon.url} alt=${action.label} />`
-      }
+      ${content}
     </wa-button>`;
   }
 

@@ -5,21 +5,22 @@ import "@awesome.me/webawesome/dist/components/callout/callout.js";
 import "@awesome.me/webawesome/dist/components/dialog/dialog.js";
 import "@awesome.me/webawesome/dist/components/input/input.js";
 
-import type { Account } from "../api.ts";
+import type { Account, AccountProvider } from "../api.ts";
 
-export interface GithubAccountSettings {
+export interface TokenAccountSettings {
   token: string;
-  /** Null for github.com. */
+  /** Null for the provider's default instance. */
   api_url: string | null;
 }
 
-type Save = (account: GithubAccountSettings) => Promise<void>;
+type Save = (account: TokenAccountSettings) => Promise<void>;
 
-/** Adds a GitHub account from an access token, or gives an account a new
- * token. */
-@customElement("github-account-dialog")
-export class GithubAccountDialog extends LitElement {
+/** Adds an account from an access token (e.g. GitHub, Phabricator), or gives
+ * an account a new token. */
+@customElement("token-account-dialog")
+export class TokenAccountDialog extends LitElement {
   @state() private open = false;
+  @state() private provider: AccountProvider | null = null;
   @state() private account: Account | null = null;
   @state() private token = "";
   @state() private apiUrl = "";
@@ -36,11 +37,12 @@ export class GithubAccountDialog extends LitElement {
   `;
 
   /**
-   * Opens the dialog to add an account, or to replace `account`'s token.
-   * `save` is called with what was entered; if it throws, its message is
-   * shown and the dialog stays open.
+   * Opens the dialog to add a `provider` account, or to replace `account`'s
+   * token. `save` is called with what was entered; if it throws, its
+   * message is shown and the dialog stays open.
    */
-  show(account: Account | null, save: Save) {
+  show(provider: AccountProvider, account: Account | null, save: Save) {
+    this.provider = provider;
     this.account = account;
     this.token = "";
     this.apiUrl = account?.api_url ?? "";
@@ -67,9 +69,11 @@ export class GithubAccountDialog extends LitElement {
   }
 
   render() {
+    let provider = this.provider;
     let label = this.account
       ? `Reconnect ${this.account.name}`
-      : "Add GitHub account";
+      : `Add ${provider?.name ?? ""} account`;
+    let placeholder = provider?.api_url_placeholder ?? "";
     return html`
       <wa-dialog
         label=${label}
@@ -88,7 +92,7 @@ export class GithubAccountDialog extends LitElement {
           }
           <wa-input
             label="Access token"
-            hint="A personal access token. For private repositories a classic token needs the repo scope; authorize it for any organisations that use SSO."
+            hint=${provider?.token_hint ?? ""}
             type="password"
             password-toggle
             required
@@ -99,9 +103,13 @@ export class GithubAccountDialog extends LitElement {
           ></wa-input>
           <wa-input
             label="API URL"
-            hint="Only needed for GitHub Enterprise, e.g. https://github.example.com/api/v3."
+            hint=${
+              placeholder
+                ? `Only needed for an instance other than ${placeholder}.`
+                : ""
+            }
             type="url"
-            placeholder="https://api.github.com"
+            placeholder=${placeholder}
             ?disabled=${this.account != null}
             .value=${this.apiUrl}
             @input=${(e: Event) =>
@@ -129,6 +137,6 @@ export class GithubAccountDialog extends LitElement {
 
 declare global {
   interface HTMLElementTagNameMap {
-    "github-account-dialog": GithubAccountDialog;
+    "token-account-dialog": TokenAccountDialog;
   }
 }
