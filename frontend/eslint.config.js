@@ -7,4 +7,10 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   prettier,
+  {
+    rules: {
+      // Project style: `const` only for module-level constants, `let` elsewhere.
+      "prefer-const": "off",
+    },
+  },
 );
