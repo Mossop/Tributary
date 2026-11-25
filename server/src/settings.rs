@@ -1,7 +1,5 @@
 //! Storage for contexts and sources.
 
-use std::time::Duration;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, SqlitePool};
@@ -27,10 +25,6 @@ pub struct SourceRecord {
     pub name: String,
     /// Ids of the contexts this source is displayed in.
     pub contexts: Vec<String>,
-    /// Polling interval while the dashboard is in use.
-    pub interval: Duration,
-    /// Polling interval while the dashboard is idle.
-    pub idle_interval: Duration,
     /// Settings specific to the source type.
     pub config: Value,
 }
@@ -124,8 +118,6 @@ struct SourceRow {
     #[sqlx(rename = "type")]
     kind: String,
     name: String,
-    interval_ms: i64,
-    idle_interval_ms: i64,
     config: String,
     contexts: Option<String>,
 }
@@ -140,8 +132,6 @@ impl From<SourceRow> for SourceRecord {
                 .contexts
                 .and_then(|c| serde_json::from_str(&c).ok())
                 .unwrap_or_default(),
-            interval: Duration::from_millis(row.interval_ms.max(0) as u64),
-            idle_interval: Duration::from_millis(row.idle_interval_ms.max(0) as u64),
             config: serde_json::from_str(&row.config).unwrap_or(Value::Null),
         }
     }
@@ -151,7 +141,7 @@ macro_rules! select_sources {
     ($rest:literal) => {
         concat!(
             r#"
-            SELECT s.id, s.type, s.name, s.interval_ms, s.idle_interval_ms, s.config,
+            SELECT s.id, s.type, s.name, s.config,
                    (SELECT json_group_array(sc.context_id) FROM source_contexts sc
                     WHERE sc.source_id = s.id) AS contexts
             FROM sources s
@@ -191,21 +181,17 @@ pub async fn save_source(pool: &SqlitePool, source: &SourceRecord) -> sqlx::Resu
     let mut tx = pool.begin().await?;
     sqlx::query(
         r#"
-        INSERT INTO sources (id, type, name, interval_ms, idle_interval_ms, config)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        INSERT INTO sources (id, type, name, config)
+        VALUES (?1, ?2, ?3, ?4)
         ON CONFLICT (id) DO UPDATE SET
             type = excluded.type,
             name = excluded.name,
-            interval_ms = excluded.interval_ms,
-            idle_interval_ms = excluded.idle_interval_ms,
             config = excluded.config
         "#,
     )
     .bind(&source.id)
     .bind(&source.kind)
     .bind(&source.name)
-    .bind(source.interval.as_millis() as i64)
-    .bind(source.idle_interval.as_millis() as i64)
     .bind(source.config.to_string())
     .execute(&mut *tx)
     .await?;
@@ -262,8 +248,6 @@ mod tests {
             kind: "stub".to_string(),
             name: format!("Source {id}"),
             contexts: contexts.iter().map(|c| c.to_string()).collect(),
-            interval: Duration::from_secs(60),
-            idle_interval: Duration::from_secs(600),
             config: json!({ "x": 1 }),
         }
     }

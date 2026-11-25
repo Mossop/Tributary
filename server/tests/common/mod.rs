@@ -116,8 +116,19 @@ pub struct TestApp {
     ids: Mutex<HashMap<String, String>>,
 }
 
+/// Starts an app with long polling intervals, so sources only fetch when
+/// added or refreshed.
 pub async fn start() -> TestApp {
-    start_with("", db::connect_in_memory().await.unwrap()).await
+    start_polling("1h", "1h").await
+}
+
+/// Starts an app polling at the given intervals (humantime strings).
+pub async fn start_polling(interval: &str, idle_interval: &str) -> TestApp {
+    start_with(
+        &format!("[polling]\ninterval = \"{interval}\"\nidle_interval = \"{idle_interval}\"\n"),
+        db::connect_in_memory().await.unwrap(),
+    )
+    .await
 }
 
 /// Starts an app with the given server config and database.
@@ -168,17 +179,6 @@ impl TestApp {
 
     /// Adds a test source shown in `contexts`, returning its id.
     pub async fn add_source(&self, key: &str, contexts: &[&str]) -> String {
-        self.add_source_with(key, contexts, 3_600_000, 3_600_000)
-            .await
-    }
-
-    pub async fn add_source_with(
-        &self,
-        key: &str,
-        contexts: &[&str],
-        interval_ms: u64,
-        idle_interval_ms: u64,
-    ) -> String {
         let (status, body) = self
             .request(
                 Method::POST,
@@ -187,8 +187,6 @@ impl TestApp {
                     "type": "test",
                     "name": format!("Source {key}"),
                     "contexts": contexts,
-                    "interval_ms": interval_ms,
-                    "idle_interval_ms": idle_interval_ms,
                     "config": { "key": key },
                 })),
             )

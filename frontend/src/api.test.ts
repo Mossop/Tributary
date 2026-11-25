@@ -29,8 +29,6 @@ describe("settings api", () => {
       type: "github",
       name: "PRs",
       contexts: ["work"],
-      interval_ms: 1000,
-      idle_interval_ms: 2000,
       config: { query: "is:pr" },
     };
     let calls = mockFetch({ "GET /api/source-types": [] });

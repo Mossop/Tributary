@@ -54,15 +54,6 @@ export class SourceDialog extends LitElement {
       font-weight: var(--wa-font-weight-semibold);
       margin-bottom: var(--wa-space-xs);
     }
-
-    .intervals {
-      display: flex;
-      gap: var(--wa-space-m);
-    }
-
-    .intervals wa-input {
-      flex: 1;
-    }
   `;
 
   /**
@@ -145,23 +136,6 @@ export class SourceDialog extends LitElement {
     ></wa-input>`;
   }
 
-  private renderNumber(
-    label: string,
-    value: number,
-    onChange: (value: number) => void,
-  ) {
-    return html`<wa-input
-      type="number"
-      label=${label}
-      min="0.1"
-      step="any"
-      required
-      .value=${String(value)}
-      @input=${(e: Event) =>
-        onChange(Number((e.target as HTMLInputElement).value))}
-    ></wa-input>`;
-  }
-
   render() {
     let label = this.source
       ? `Edit ${this.source.name}`
@@ -201,18 +175,6 @@ export class SourceDialog extends LitElement {
             )}
           </fieldset>
           ${this.type?.fields.map((field) => this.renderField(field))}
-          <div class="intervals">
-            ${this.renderNumber(
-              "Check every (minutes)",
-              this.values.intervalMinutes,
-              (intervalMinutes) => this.set({ intervalMinutes }),
-            )}
-            ${this.renderNumber(
-              "When idle (minutes)",
-              this.values.idleIntervalMinutes,
-              (idleIntervalMinutes) => this.set({ idleIntervalMinutes }),
-            )}
-          </div>
           <button type="submit" hidden></button>
         </form>
         <wa-button

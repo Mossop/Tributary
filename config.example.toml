@@ -6,5 +6,10 @@ listen = "0.0.0.0:8080"
 database = "data/dashboard.db"
 static_dir = "frontend/dist"
 # With no client activity for this long the dashboard is idle and sources poll
-# at their idle interval.
+# at the idle interval.
 active_timeout = "5m"
+
+# How often every source is checked for new items.
+[polling]
+interval = "5m"
+idle_interval = "30m"

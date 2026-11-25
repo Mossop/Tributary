@@ -7,7 +7,7 @@ use std::time::Duration;
 use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use common::{item, start, start_with, wait_for};
+use common::{item, start, start_polling, start_with, wait_for};
 use dashboard::db;
 use dashboard::settings::{self, SourceRecord};
 
@@ -198,8 +198,6 @@ fn source_body(fields: Value) -> Value {
         "type": "test",
         "name": "S",
         "contexts": ["default"],
-        "interval_ms": 1000,
-        "idle_interval_ms": 1000,
         "config": { "key": "k" },
     });
     for (key, value) in fields.as_object().unwrap() {
@@ -215,10 +213,6 @@ async fn validates_sources() {
         (json!({ "name": " " }), "Name is required"),
         (json!({ "contexts": [] }), "Choose at least one context"),
         (json!({ "contexts": ["nope"] }), "unknown context `nope`"),
-        (
-            json!({ "interval_ms": 0 }),
-            "Polling intervals must be greater than zero",
-        ),
         (json!({ "type": "nope" }), "unknown source type `nope`"),
         (json!({ "config": {} }), "Key is required"),
     ] {
@@ -233,8 +227,8 @@ async fn validates_sources() {
 
 #[tokio::test]
 async fn updating_source_restarts_it() {
-    let app = start().await;
-    let id = app.add_source_with("old", &["default"], 20, 20).await;
+    let app = start_polling("20ms", "20ms").await;
+    let id = app.add_source("old", &["default"]).await;
     wait_for(|| app.source("old").fetches() >= 2).await;
 
     let (status, body) = app
@@ -244,8 +238,6 @@ async fn updating_source_restarts_it() {
             Some(source_body(json!({
                 "name": "Renamed",
                 "config": { "key": "new" },
-                "interval_ms": 20,
-                "idle_interval_ms": 20,
             }))),
         )
         .await;
@@ -272,8 +264,8 @@ async fn updating_source_restarts_it() {
 
 #[tokio::test]
 async fn deleting_source_stops_it_and_removes_items() {
-    let app = start().await;
-    let id = app.add_source_with("a", &["default"], 20, 20).await;
+    let app = start_polling("20ms", "20ms").await;
+    let id = app.add_source("a", &["default"]).await;
     app.source("a").set_items(vec![item("1", 1, None)]);
     app.refresh("default").await;
     assert_eq!(app.ids("/api/contexts/default/items").await, ["a/1"]);
@@ -313,8 +305,6 @@ async fn secrets_are_write_only() {
                 "type": "github",
                 "name": "PRs",
                 "contexts": ["default"],
-                "interval_ms": 3_600_000,
-                "idle_interval_ms": 3_600_000,
                 // Unreachable so the test doesn't hit the network.
                 "config": { "query": "is:pr", "token": "s3cret", "api_url": "http://127.0.0.1:1" },
             })),
@@ -337,8 +327,6 @@ async fn secrets_are_write_only() {
             Some(json!({
                 "name": "PRs",
                 "contexts": ["default"],
-                "interval_ms": 3_600_000,
-                "idle_interval_ms": 3_600_000,
                 "config": { "query": "is:issue", "token": "", "api_url": "http://127.0.0.1:1" },
             })),
         )
@@ -357,8 +345,6 @@ async fn secrets_are_write_only() {
                 "type": "github",
                 "name": "PRs",
                 "contexts": ["default"],
-                "interval_ms": 1000,
-                "idle_interval_ms": 1000,
                 "config": { "query": "is:pr" },
             })),
         )
@@ -392,8 +378,6 @@ async fn unbuildable_sources_report_an_error() {
             kind: "removed-type".to_string(),
             name: "Gone".to_string(),
             contexts: vec!["default".to_string()],
-            interval: Duration::from_secs(60),
-            idle_interval: Duration::from_secs(60),
             config: json!({}),
         },
     )

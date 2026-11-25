@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use axum::http::Method;
 
-use common::{start, wait_for};
+use common::{start, start_polling, wait_for};
 
 #[tokio::test]
 async fn fetches_when_added() {
@@ -17,15 +17,15 @@ async fn fetches_when_added() {
 
 #[tokio::test]
 async fn polls_at_idle_interval_when_idle() {
-    let app = start().await;
-    app.add_source_with("a", &["default"], 3_600_000, 20).await;
+    let app = start_polling("1h", "20ms").await;
+    app.add_source("a", &["default"]).await;
     wait_for(|| app.source("a").fetches() >= 4).await;
 }
 
 #[tokio::test]
 async fn polls_at_active_interval_when_active() {
-    let app = start().await;
-    app.add_source_with("a", &["default"], 20, 3_600_000).await;
+    let app = start_polling("20ms", "1h").await;
+    app.add_source("a", &["default"]).await;
     wait_for(|| app.source("a").fetches() >= 1).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     // Idle: only the initial fetch.

@@ -18,6 +18,29 @@ use serde::Deserialize;
 pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
+    #[serde(default)]
+    pub polling: PollingConfig,
+}
+
+/// How often sources are polled. Applies to every source.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct PollingConfig {
+    /// Polling interval while the dashboard is in use.
+    #[serde(with = "humantime_serde")]
+    pub interval: Duration,
+    /// Polling interval while the dashboard is idle.
+    #[serde(with = "humantime_serde")]
+    pub idle_interval: Duration,
+}
+
+impl Default for PollingConfig {
+    fn default() -> Self {
+        Self {
+            interval: Duration::from_secs(5 * 60),
+            idle_interval: Duration::from_secs(30 * 60),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -82,8 +105,23 @@ mod tests {
     }
 
     #[test]
+    fn parses_polling_config() {
+        let config = Config::from_toml(
+            r#"
+            [polling]
+            interval = "1m"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.polling.interval, Duration::from_secs(60));
+        assert_eq!(config.polling.idle_interval, Duration::from_secs(30 * 60));
+    }
+
+    #[test]
     fn defaults_when_empty() {
         let config = Config::from_toml("").unwrap();
         assert_eq!(config.server.listen, "0.0.0.0:8080".parse().unwrap());
+        assert_eq!(config.polling.interval, Duration::from_secs(5 * 60));
+        assert_eq!(config.polling.idle_interval, Duration::from_secs(30 * 60));
     }
 }

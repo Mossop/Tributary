@@ -12,7 +12,8 @@ frontend in `frontend/`. See README.md for features and configuration.
 
 ## Server layout (`server/src`)
 
-- `config.rs` — server-only TOML + `DASHBOARD_` env config via figment.
+- `config.rs` — `[server]` and `[polling]` TOML + `DASHBOARD_` env config via
+  figment. Polling intervals are global, not per source or UI configurable.
 - `settings.rs` — contexts and sources in SQLite. Context `id` is the URL slug
   (renames cascade). Sources have generated ids, common columns, and a JSON
   `config` for type specific settings.

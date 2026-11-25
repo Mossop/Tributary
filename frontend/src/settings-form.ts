@@ -1,10 +1,5 @@
 import type { Source, SourceSettings, SourceType } from "./api.ts";
 
-const MS_PER_MINUTE = 60_000;
-
-export const DEFAULT_INTERVAL_MINUTES = 5;
-export const DEFAULT_IDLE_INTERVAL_MINUTES = 30;
-
 /** Derives a URL name from a context name, e.g. "Side Projects" → "side-projects". */
 export function slugify(name: string): string {
   return name
@@ -15,20 +10,10 @@ export function slugify(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export function minutesToMs(minutes: number): number {
-  return Math.round(minutes * MS_PER_MINUTE);
-}
-
-export function msToMinutes(ms: number): number {
-  return ms / MS_PER_MINUTE;
-}
-
 /** The values edited in the source form. */
 export interface SourceFormValues {
   name: string;
   contexts: string[];
-  intervalMinutes: number;
-  idleIntervalMinutes: number;
   /** Type specific settings by field key, as entered. */
   fields: Record<string, string>;
 }
@@ -42,8 +27,6 @@ export function initialValues(
     return {
       name: "",
       contexts: defaultContext ? [defaultContext] : [],
-      intervalMinutes: DEFAULT_INTERVAL_MINUTES,
-      idleIntervalMinutes: DEFAULT_IDLE_INTERVAL_MINUTES,
       fields: {},
     };
   }
@@ -54,8 +37,6 @@ export function initialValues(
   return {
     name: source.name,
     contexts: [...source.contexts],
-    intervalMinutes: msToMinutes(source.interval_ms),
-    idleIntervalMinutes: msToMinutes(source.idle_interval_ms),
     fields,
   };
 }
@@ -79,8 +60,6 @@ export function sourceSettings(
   let settings: SourceSettings = {
     name: values.name.trim(),
     contexts: values.contexts,
-    interval_ms: minutesToMs(values.intervalMinutes),
-    idle_interval_ms: minutesToMs(values.idleIntervalMinutes),
     config,
   };
   if (creating) {

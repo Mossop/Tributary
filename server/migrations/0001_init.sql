@@ -47,8 +47,6 @@ CREATE TABLE sources (
     id TEXT PRIMARY KEY NOT NULL,
     type TEXT NOT NULL,
     name TEXT NOT NULL,
-    interval_ms INTEGER NOT NULL,
-    idle_interval_ms INTEGER NOT NULL,
     config TEXT NOT NULL DEFAULT '{}'
 );
 

@@ -1,7 +1,5 @@
 //! Managing contexts and sources.
 
-use std::time::Duration;
-
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -137,8 +135,6 @@ pub struct SourceInfo {
     /// Empty if the source isn't running (e.g. its config is invalid).
     icon: String,
     contexts: Vec<String>,
-    interval_ms: u64,
-    idle_interval_ms: u64,
     /// Type specific settings, without secrets.
     config: Map<String, Value>,
     /// Keys of the secret settings that have a value.
@@ -157,8 +153,6 @@ fn source_info(ws: &Workspace, record: SourceRecord, status: SourceStatus) -> So
         kind: record.kind,
         name: record.name,
         contexts: record.contexts,
-        interval_ms: record.interval.as_millis() as u64,
-        idle_interval_ms: record.idle_interval.as_millis() as u64,
         config,
         secrets_set,
         status,
@@ -195,8 +189,6 @@ pub struct SourceBody {
     kind: Option<String>,
     name: String,
     contexts: Vec<String>,
-    interval_ms: u64,
-    idle_interval_ms: u64,
     #[serde(default)]
     config: Map<String, Value>,
 }
@@ -216,11 +208,6 @@ async fn validate_common(ws: &Workspace, body: &SourceBody) -> ApiResult<()> {
             .await
             .map_err(|_| ApiError::BadRequest(format!("unknown context `{context}`")))?;
     }
-    if body.interval_ms == 0 || body.idle_interval_ms == 0 {
-        return Err(ApiError::BadRequest(
-            "Polling intervals must be greater than zero".to_string(),
-        ));
-    }
     Ok(())
 }
 
@@ -238,8 +225,6 @@ fn record_from(
         kind: source_type.id.clone(),
         name: body.name.trim().to_string(),
         contexts: body.contexts,
-        interval: Duration::from_millis(body.interval_ms),
-        idle_interval: Duration::from_millis(body.idle_interval_ms),
         config,
     })
 }

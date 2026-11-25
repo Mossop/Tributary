@@ -52,8 +52,8 @@ if you want the built frontend instead of the Vite dev server.
 
 ## Configuration
 
-Only server settings live in configuration; contexts and sources are stored in
-the database. The config file is optional (default `config.toml`, change it
+Only server and polling settings live in configuration; contexts and sources
+are stored in the database. The config file is optional (default `config.toml`, change it
 with `--config`). Any value can be overridden with environment variables
 prefixed `DASHBOARD_`, with `__` between nested keys, e.g.
 `DASHBOARD_SERVER__LISTEN=127.0.0.1:9000`.
@@ -64,12 +64,16 @@ listen = "0.0.0.0:8080"
 database = "data/dashboard.db"
 static_dir = "frontend/dist"
 active_timeout = "5m"           # idle after this long with no client activity
+
+[polling]                       # all optional; applies to every source
+interval = "5m"                 # while the dashboard is in use
+idle_interval = "30m"           # while it is idle
 ```
 
 ### Source settings
 
-Every source has a name, the contexts it's shown in and two polling intervals
-(while active and while idle). Each source type adds its own settings:
+Every source has a name and the contexts it's shown in. Each source type adds
+its own settings:
 
 **GitHub search**: a search query (e.g. `is:open is:pr author:@me`), an access
 token, and optionally an API URL for GitHub Enterprise. Shows up to 100

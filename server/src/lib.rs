@@ -83,8 +83,8 @@ impl Workspace {
                     handle: scheduler::spawn(
                         Schedule {
                             source_id: record.id.clone(),
-                            interval: record.interval,
-                            idle_interval: record.idle_interval,
+                            interval: self.config.polling.interval,
+                            idle_interval: self.config.polling.idle_interval,
                         },
                         source,
                         self.pool.clone(),

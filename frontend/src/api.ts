@@ -21,8 +21,6 @@ export interface Source {
   /** Empty if the source isn't running, e.g. because its settings are invalid. */
   icon: string;
   contexts: string[];
-  interval_ms: number;
-  idle_interval_ms: number;
   /** Type specific settings, excluding secrets. */
   config: Record<string, unknown>;
   /** Keys of secret settings that have a value. */
@@ -51,8 +49,6 @@ export interface SourceSettings {
   type?: string;
   name: string;
   contexts: string[];
-  interval_ms: number;
-  idle_interval_ms: number;
   config: Record<string, unknown>;
 }
 
