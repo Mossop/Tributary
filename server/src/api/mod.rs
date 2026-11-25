@@ -48,6 +48,7 @@ pub fn router(workspace: AppState) -> Router {
         .route("/account-providers", get(accounts_api::list_providers))
         .route("/accounts", get(accounts_api::list_accounts))
         .route("/accounts/{account}", delete(accounts_api::delete_account))
+        .route("/accounts/github", post(accounts_api::add_github))
         .route(
             "/accounts/google/connect",
             get(accounts_api::connect_google),

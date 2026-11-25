@@ -18,11 +18,22 @@ import { parseIcon } from "../icons.ts";
 import { connectError, sourcesUsing } from "../settings-form.ts";
 import type { ConfirmDialog } from "./confirm-dialog.ts";
 import "./confirm-dialog.ts";
+import type { GithubAccountDialog } from "./github-account-dialog.ts";
+import "./github-account-dialog.ts";
 import type { Store } from "../store.ts";
 import type { ContextDialog } from "./context-dialog.ts";
 import "./context-dialog.ts";
 import type { SourceDialog } from "./source-dialog.ts";
 import "./source-dialog.ts";
+
+/** The host of a URL, or the URL itself if it isn't valid. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
 
 /** Manages contexts, accounts and sources. */
 @customElement("settings-page")
@@ -37,6 +48,7 @@ export class SettingsPage extends LitElement {
   @query("context-dialog") private contextDialog!: ContextDialog;
   @query("source-dialog") private sourceDialog!: SourceDialog;
   @query("confirm-dialog") private confirmDialog!: ConfirmDialog;
+  @query("github-account-dialog") private githubDialog!: GithubAccountDialog;
 
   static styles = css`
     :host {
@@ -153,8 +165,16 @@ export class SettingsPage extends LitElement {
     );
   }
 
+  /** Adds an account with `provider`, or reconnects `account`. */
   private connect(provider: string, account?: Account) {
-    location.assign(api.connectUrl(provider, account?.id));
+    let info = this.providers.find((p) => p.id == provider);
+    if (info?.connect == "token") {
+      this.githubDialog.show(account ?? null, (settings) =>
+        this.apply(() => api.addTokenAccount(provider, settings)),
+      );
+    } else {
+      location.assign(api.connectUrl(provider, account?.id));
+    }
   }
 
   private deleteAccount(account: Account) {
@@ -253,20 +273,33 @@ export class SettingsPage extends LitElement {
     </section>`;
   }
 
-  private renderConnect(provider: AccountProvider) {
-    return html`<wa-button
-      appearance="plain"
-      ?disabled=${!provider.configured}
-      title=${
-        provider.configured
-          ? ""
-          : `Set up ${provider.name} in the server configuration first`
-      }
-      @click=${() => this.connect(provider.id)}
+  private renderAddAccount() {
+    return html`<wa-dropdown
+      placement="bottom-end"
+      @wa-select=${(e: CustomEvent<{ item: { value: string } }>) =>
+        this.connect(e.detail.item.value)}
     >
-      <wa-icon slot="start" name="add"></wa-icon>
-      Connect ${provider.name} account
-    </wa-button>`;
+      <wa-button slot="trigger" appearance="plain" with-caret>
+        <wa-icon slot="start" name="add"></wa-icon>
+        Add account
+      </wa-button>
+      ${this.providers.map(
+        (provider) =>
+          html`<wa-dropdown-item
+            value=${provider.id}
+            ?disabled=${!provider.configured}
+          >
+            ${provider.name}
+            ${
+              provider.configured
+                ? nothing
+                : html`<span slot="details"
+                    >Set up in the server configuration first</span
+                  >`
+            }
+          </wa-dropdown-item>`,
+      )}
+    </wa-dropdown>`;
   }
 
   private renderAccountIcon(provider: AccountProvider | undefined) {
@@ -284,7 +317,7 @@ export class SettingsPage extends LitElement {
     return html`<section>
       <div class="section-header">
         <h2>Accounts</h2>
-        ${this.providers.map((provider) => this.renderConnect(provider))}
+        ${this.renderAddAccount()}
       </div>
       ${
         this.accounts.length == 0
@@ -301,6 +334,7 @@ export class SettingsPage extends LitElement {
               <div class="title">${account.name}</div>
               <div class="meta">
                 ${providers.get(account.provider)?.name ?? account.provider}
+                ${account.api_url ? html` · ${hostOf(account.api_url)}` : nothing}
               </div>
               ${
                 account.revoked
@@ -431,6 +465,7 @@ export class SettingsPage extends LitElement {
       <context-dialog></context-dialog>
       <source-dialog></source-dialog>
       <confirm-dialog></confirm-dialog>
+      <github-account-dialog></github-account-dialog>
     `;
   }
 }

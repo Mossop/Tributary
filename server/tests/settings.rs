@@ -232,15 +232,15 @@ async fn lists_offered_source_types() {
     assert_eq!(ids, ["github", "google-tasks", "test"]);
     assert_eq!(types[0]["name"], "GitHub search");
     assert_eq!(
-        types[0]["fields"][1],
+        types[0]["fields"][0],
         json!({
-            "key": "token",
-            "label": "Access token",
-            "kind": "secret",
+            "key": "account",
+            "label": "GitHub account",
+            "kind": "account",
             "required": true,
             "placeholder": null,
-            "help": "A personal access token with read access.",
-            "provider": null,
+            "help": null,
+            "provider": "github",
         })
     );
     assert_eq!(types[1]["fields"][0]["kind"], "account");
@@ -357,55 +357,35 @@ async fn secrets_are_write_only() {
             Method::POST,
             "/api/sources",
             Some(json!({
-                "type": "github",
-                "name": "PRs",
+                "type": "test",
+                "name": "Secret",
                 "contexts": ["default"],
-                // Unreachable so the test doesn't hit the network.
-                "config": { "query": "is:pr", "token": "s3cret", "api_url": "http://127.0.0.1:1" },
+                "config": { "key": "s", "password": "s3cret" },
             })),
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let id = body["id"].as_str().unwrap().to_string();
-    assert_eq!(
-        body["config"],
-        json!({ "query": "is:pr", "api_url": "http://127.0.0.1:1" })
-    );
-    assert_eq!(body["secrets_set"], json!(["token"]));
-    assert_eq!(body["icon"], "https://github.com/favicon.ico");
+    assert_eq!(body["config"], json!({ "key": "s" }));
+    assert_eq!(body["secrets_set"], json!(["password"]));
 
-    // Updating without the token keeps it.
+    // Updating without the secret keeps it.
     let (status, body) = app
         .request(
             Method::PUT,
             &format!("/api/sources/{id}"),
             Some(json!({
-                "name": "PRs",
+                "name": "Renamed",
                 "contexts": ["default"],
-                "config": { "query": "is:issue", "token": "", "api_url": "http://127.0.0.1:1" },
+                "config": { "key": "s", "password": "" },
             })),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["secrets_set"], json!(["password"]));
     let stored = settings::get_source(&app.pool, &id).await.unwrap().unwrap();
-    assert_eq!(stored.config["token"], "s3cret");
-    assert_eq!(stored.config["query"], "is:issue");
-
-    // A secret is still required on creation.
-    let (status, body) = app
-        .request(
-            Method::POST,
-            "/api/sources",
-            Some(json!({
-                "type": "github",
-                "name": "PRs",
-                "contexts": ["default"],
-                "config": { "query": "is:pr" },
-            })),
-        )
-        .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(body["error"], "Access token is required");
+    assert_eq!(stored.config["password"], "s3cret");
+    assert_eq!(stored.name, "Renamed");
 }
 
 #[tokio::test]

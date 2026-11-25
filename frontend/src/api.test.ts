@@ -83,6 +83,16 @@ describe("api", () => {
     expect(calls[0].url).toBe("/api/items/gh/inbox%2Ft1/actions/complete");
   });
 
+  it("adds token accounts", async () => {
+    let calls = mockFetch();
+    await api.addTokenAccount("github", { token: "t", api_url: null });
+    expect(calls[0]).toEqual({
+      method: "POST",
+      url: "/api/accounts/github",
+      body: { token: "t", api_url: null },
+    });
+  });
+
   it("sets hidden kinds", async () => {
     let calls = mockFetch();
     await api.setHiddenKinds("a b", ["task", "patch"]);

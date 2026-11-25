@@ -139,6 +139,7 @@ function account(id: string, provider = "google"): Account {
     id,
     provider,
     name: `${id}@example.com`,
+    api_url: null,
     missing_scopes: false,
     revoked: false,
   };

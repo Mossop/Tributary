@@ -35,6 +35,7 @@ let account: Account = {
   id: "a1",
   provider: "google",
   name: "me@example.com",
+  api_url: null,
   missing_scopes: false,
   revoked: false,
 };
@@ -64,7 +65,15 @@ async function render(sources = [makeSource()]) {
     sources,
     sourceTypes: [tasks],
     accounts: [account],
-    providers: [],
+    providers: [
+      {
+        id: "github",
+        name: "GitHub",
+        icon: "https://github.com/favicon.ico",
+        connect: "token",
+        configured: true,
+      },
+    ],
   });
   document.body.append(page);
   await page.updateComplete;
@@ -127,6 +136,69 @@ describe("settings-page", () => {
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
       "DELETE /api/accounts/a1",
     ]);
+  });
+
+  it("adds GitHub accounts from a token", async () => {
+    let calls = mockFetch();
+    let { page, store } = await render();
+
+    page
+      .shadowRoot!.querySelector("wa-dropdown")!
+      .dispatchEvent(
+        new CustomEvent("wa-select", { detail: { item: { value: "github" } } }),
+      );
+    let dialog = page.shadowRoot!.querySelector("github-account-dialog")!;
+    await dialog.updateComplete;
+    let waDialog = dialog.shadowRoot!.querySelector("wa-dialog")!;
+    expect(waDialog.getAttribute("label")).toBe("Add GitHub account");
+
+    let [token, apiUrl] = [
+      ...dialog.shadowRoot!.querySelectorAll<HTMLInputElement>("wa-input"),
+    ];
+    token.value = " ghp_secret ";
+    token.dispatchEvent(new Event("input"));
+    apiUrl.value = "";
+    apiUrl.dispatchEvent(new Event("input"));
+    dialog
+      .shadowRoot!.querySelector<HTMLElement>("wa-button[variant='brand']")!
+      .click();
+
+    await vi.waitFor(() => expect(store.loadSettings).toHaveBeenCalled());
+    expect(calls).toEqual([
+      {
+        method: "POST",
+        url: "/api/accounts/github",
+        body: { token: "ghp_secret", api_url: null },
+      },
+    ]);
+  });
+
+  it("shows when a GitHub token is rejected", async () => {
+    mockFetch({
+      "POST /api/accounts/github": new Response(
+        JSON.stringify({ error: "GitHub didn't accept the token" }),
+        { status: 400 },
+      ),
+    });
+    let { page } = await render();
+    page
+      .shadowRoot!.querySelector("wa-dropdown")!
+      .dispatchEvent(
+        new CustomEvent("wa-select", { detail: { item: { value: "github" } } }),
+      );
+    let dialog = page.shadowRoot!.querySelector("github-account-dialog")!;
+    await dialog.updateComplete;
+    dialog
+      .shadowRoot!.querySelector<HTMLElement>("wa-button[variant='brand']")!
+      .click();
+    await vi.waitFor(() =>
+      expect(
+        dialog.shadowRoot!.querySelector("wa-callout")?.textContent,
+      ).toContain("GitHub didn't accept the token"),
+    );
+    expect(
+      dialog.shadowRoot!.querySelector("wa-dialog")!.hasAttribute("open"),
+    ).toBe(true);
   });
 
   it("asks before deleting a source", async () => {

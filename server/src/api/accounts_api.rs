@@ -11,11 +11,23 @@ use tracing::warn;
 
 use super::{ApiError, ApiResult, AppState};
 use crate::Workspace;
-use crate::accounts::{self, GOOGLE};
+use crate::accounts::{self, GITHUB, GOOGLE};
 use crate::events::Event;
 use crate::google::IDENTITY_SCOPES;
 use crate::settings::{self, SourceRecord};
 use crate::sources::FieldKind;
+use crate::sources::github;
+
+/// How accounts with a provider are connected.
+#[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Connect {
+    /// Through `/api/accounts/{provider}/connect`, which redirects to the
+    /// provider.
+    OAuth,
+    /// By posting a token to `/api/accounts/{provider}`.
+    Token,
+}
 
 #[derive(Serialize)]
 pub struct ProviderInfo {
@@ -23,17 +35,28 @@ pub struct ProviderInfo {
     name: &'static str,
     /// A URL, or `symbol:<name>` for a Material Symbol.
     icon: &'static str,
+    connect: Connect,
     /// Whether the server has the configuration needed to connect accounts.
     configured: bool,
 }
 
 pub async fn list_providers(State(ws): State<AppState>) -> Json<Vec<ProviderInfo>> {
-    Json(vec![ProviderInfo {
-        id: GOOGLE,
-        name: "Google",
-        icon: "https://www.gstatic.com/images/branding/googleg/1x/googleg_standard_color_48dp.png",
-        configured: ws.accounts.google().is_some(),
-    }])
+    Json(vec![
+        ProviderInfo {
+            id: GITHUB,
+            name: "GitHub",
+            icon: "https://github.com/favicon.ico",
+            connect: Connect::Token,
+            configured: true,
+        },
+        ProviderInfo {
+            id: GOOGLE,
+            name: "Google",
+            icon: "https://www.gstatic.com/images/branding/googleg/1x/googleg_standard_color_48dp.png",
+            connect: Connect::OAuth,
+            configured: ws.accounts.google().is_some(),
+        },
+    ])
 }
 
 #[derive(Serialize)]
@@ -96,6 +119,77 @@ pub async fn delete_account(
     ws.accounts.forget(&id);
     let _ = ws.events.send(Event::SettingsChanged);
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Refreshes the sources using an account, which may have been failing
+/// because it needed reconnecting.
+async fn wake_users(ws: &Workspace, account_id: &str) {
+    if let Ok(sources) = sources_using(ws, account_id).await {
+        for source in sources {
+            if let Some(running) = ws.running(&source.id) {
+                running.handle.wake();
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct GithubAccountBody {
+    token: String,
+    /// For GitHub Enterprise; empty or absent means github.com.
+    #[serde(default)]
+    api_url: Option<String>,
+}
+
+/// Adds a GitHub account from an access token, or updates the token of an
+/// account that was already added.
+pub async fn add_github(
+    State(ws): State<AppState>,
+    Json(body): Json<GithubAccountBody>,
+) -> ApiResult<(StatusCode, Json<AccountInfo>)> {
+    let token = body.token.trim();
+    if token.is_empty() {
+        return Err(ApiError::BadRequest("Token is required".to_string()));
+    }
+    let api_url = github::api_url(body.api_url.as_deref());
+    let client = github::client().map_err(|e| ApiError::Internal(e.to_string()))?;
+    let user = github::current_user(&client, &api_url, token)
+        .await
+        .map_err(|error| match error {
+            github::TokenError::Rejected => ApiError::BadRequest(
+                "GitHub didn't accept the token; check it hasn't expired".to_string(),
+            ),
+            error => ApiError::Upstream(format!("Couldn't check the token: {error}")),
+        })?;
+
+    let id = accounts::save_account(
+        &ws.pool,
+        &accounts::NewAccount {
+            provider: GITHUB,
+            // GitHub user ids are only unique within a host.
+            subject: &format!("{api_url}#{}", user.id),
+            name: &user.login,
+            secret: token,
+            scopes: "",
+            api_url: (api_url != github::DEFAULT_API_URL).then_some(api_url.as_str()),
+        },
+    )
+    .await?;
+    ws.accounts.forget(&id);
+    wake_users(&ws, &id).await;
+    let _ = ws.events.send(Event::SettingsChanged);
+
+    let account = accounts::get_account(&ws.pool, &id)
+        .await?
+        .ok_or_else(|| ApiError::Internal("the account wasn't saved".to_string()))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(AccountInfo {
+            missing_scopes: false,
+            revoked: false,
+            account,
+        }),
+    ))
 }
 
 /// Back to the settings page, optionally reporting an error.
@@ -197,25 +291,19 @@ async fn finish_google_connect(ws: &Workspace, query: CallbackQuery) -> Result<(
 
     let id = accounts::save_account(
         &ws.pool,
-        GOOGLE,
-        &user.sub,
-        &user.email,
-        refresh_token,
-        tokens.scope.as_deref().unwrap_or_default(),
+        &accounts::NewAccount {
+            provider: GOOGLE,
+            subject: &user.sub,
+            name: &user.email,
+            secret: refresh_token,
+            scopes: tokens.scope.as_deref().unwrap_or_default(),
+            api_url: None,
+        },
     )
     .await
     .map_err(|error| format!("Couldn't save the account: {error}"))?;
     ws.accounts.forget(&id);
-
-    // Sources may have been failing because the account needed
-    // reconnecting.
-    if let Ok(sources) = sources_using(ws, &id).await {
-        for source in sources {
-            if let Some(running) = ws.running(&source.id) {
-                running.handle.wake();
-            }
-        }
-    }
+    wake_users(ws, &id).await;
     let _ = ws.events.send(Event::SettingsChanged);
     Ok(())
 }

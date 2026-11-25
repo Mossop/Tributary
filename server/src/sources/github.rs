@@ -1,12 +1,18 @@
 //! Lists GitHub issues and pull requests matching a search query.
 
-use anyhow::Context as _;
+use std::sync::Arc;
+
+use anyhow::{Context as _, bail};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
+use reqwest::StatusCode;
+use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use serde::Deserialize;
 
-use super::{Field, FieldKind, ItemKind, Source, SourceError, SourceItem, SourceType};
+use super::{
+    Field, FieldKind, ItemKind, Source, SourceContext, SourceError, SourceItem, SourceType,
+};
+use crate::accounts::{Accounts, GITHUB};
 
 const ICON: &str = "https://github.com/favicon.ico";
 
@@ -24,16 +30,14 @@ const PR_MERGED: &str = include_str!("octicons/git-merge.svg");
 const ISSUE_OPEN: &str = include_str!("octicons/issue-opened.svg");
 const ISSUE_CLOSED: &str = include_str!("octicons/issue-closed.svg");
 const ISSUE_NOT_PLANNED: &str = include_str!("octicons/skip.svg");
-const DEFAULT_API_URL: &str = "https://api.github.com";
+pub const DEFAULT_API_URL: &str = "https://api.github.com";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct GithubConfig {
     /// A GitHub issue search query, e.g. `is:open is:pr author:@me`.
     pub query: String,
-    pub token: String,
-    /// API base URL; empty or absent means public GitHub.
-    #[serde(default)]
-    pub api_url: Option<String>,
+    /// The GitHub account to search as.
+    pub account: String,
 }
 
 pub fn source_type() -> SourceType {
@@ -41,6 +45,15 @@ pub fn source_type() -> SourceType {
         "github",
         "GitHub search",
         vec![
+            Field {
+                key: "account",
+                label: "GitHub account",
+                kind: FieldKind::Account,
+                required: true,
+                placeholder: None,
+                help: None,
+                provider: Some(GITHUB),
+            },
             Field {
                 key: "query",
                 label: "Search query",
@@ -50,74 +63,134 @@ pub fn source_type() -> SourceType {
                 help: Some("A GitHub issue and pull request search."),
                 provider: None,
             },
-            Field {
-                key: "token",
-                label: "Access token",
-                kind: FieldKind::Secret,
-                required: true,
-                placeholder: None,
-                help: Some("A personal access token with read access."),
-                provider: None,
-            },
-            Field {
-                key: "api_url",
-                label: "API URL",
-                kind: FieldKind::Url,
-                required: false,
-                placeholder: Some(DEFAULT_API_URL),
-                help: Some("Only needed for GitHub Enterprise."),
-                provider: None,
-            },
         ],
-        |config, _| {
+        |config, context| {
             let config: GithubConfig = serde_json::from_value(config.clone())?;
-            Ok(std::sync::Arc::new(GithubSource::from_config(&config)?))
+            Ok(Arc::new(GithubSource::new(context, config)?))
         },
     )
 }
 
+/// The API URL to use, given an optional configured one.
+pub fn api_url(configured: Option<&str>) -> String {
+    configured
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .unwrap_or(DEFAULT_API_URL)
+        .trim_end_matches('/')
+        .to_string()
+}
+
+/// An HTTP client with the headers GitHub's API expects. Requests add the
+/// token themselves.
+pub fn client() -> reqwest::Result<reqwest::Client> {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        ACCEPT,
+        HeaderValue::from_static("application/vnd.github+json"),
+    );
+    headers.insert(USER_AGENT, HeaderValue::from_static("tributary"));
+    headers.insert(
+        "X-GitHub-Api-Version",
+        HeaderValue::from_static("2022-11-28"),
+    );
+    reqwest::Client::builder().default_headers(headers).build()
+}
+
+/// The user a token belongs to.
+#[derive(Debug, Deserialize)]
+pub struct GithubUser {
+    pub id: u64,
+    pub login: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum TokenError {
+    /// GitHub didn't accept the token.
+    #[error("GitHub didn't accept the token")]
+    Rejected,
+    #[error("GitHub returned {0}")]
+    Api(String),
+    #[error(transparent)]
+    Http(#[from] reqwest::Error),
+}
+
+/// Looks up the user a token belongs to, checking the token works.
+pub async fn current_user(
+    client: &reqwest::Client,
+    api_url: &str,
+    token: &str,
+) -> Result<GithubUser, TokenError> {
+    let response = client
+        .get(format!("{api_url}/user"))
+        .bearer_auth(token)
+        .send()
+        .await?;
+    match response.status() {
+        status if status.is_success() => Ok(response.json().await?),
+        StatusCode::UNAUTHORIZED => Err(TokenError::Rejected),
+        status => Err(TokenError::Api(error_message(status, response).await)),
+    }
+}
+
+async fn error_message(status: StatusCode, response: reqwest::Response) -> String {
+    let message = response
+        .json::<ErrorResponse>()
+        .await
+        .map(|e| e.message)
+        .unwrap_or_default();
+    format!("{status}: {message}")
+}
+
 pub struct GithubSource {
     client: reqwest::Client,
-    api_url: String,
+    accounts: Arc<Accounts>,
+    account: String,
     query: String,
 }
 
 impl GithubSource {
-    pub fn from_config(config: &GithubConfig) -> anyhow::Result<Self> {
-        let api_url = config
-            .api_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|url| !url.is_empty())
-            .unwrap_or(DEFAULT_API_URL);
-        Self::new(api_url, &config.query, &config.token)
+    pub fn new(context: &SourceContext, config: GithubConfig) -> anyhow::Result<Self> {
+        Ok(Self {
+            client: client()?,
+            accounts: context.accounts.clone(),
+            account: config.account,
+            query: config.query,
+        })
     }
 
-    pub fn new(api_url: &str, query: &str, token: &str) -> anyhow::Result<Self> {
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            ACCEPT,
-            HeaderValue::from_static("application/vnd.github+json"),
-        );
-        headers.insert(USER_AGENT, HeaderValue::from_static("tributary"));
-        headers.insert(
-            "X-GitHub-Api-Version",
-            HeaderValue::from_static("2022-11-28"),
-        );
-        let mut auth =
-            HeaderValue::from_str(&format!("Bearer {token}")).context("invalid GitHub token")?;
-        auth.set_sensitive(true);
-        headers.insert(AUTHORIZATION, auth);
+    async fn search(&self) -> anyhow::Result<Vec<SourceItem>> {
+        let (account, token) = self.accounts.github(&self.account).await?;
+        let api_url = api_url(account.api_url.as_deref());
+        let response = self
+            .client
+            .get(format!("{api_url}/search/issues"))
+            .bearer_auth(&token)
+            .query(&[
+                ("q", self.query.as_str()),
+                ("per_page", "100"),
+                ("sort", "updated"),
+                ("order", "desc"),
+            ])
+            .send()
+            .await?;
 
-        let client = reqwest::Client::builder()
-            .default_headers(headers)
-            .build()?;
-
-        Ok(Self {
-            client,
-            api_url: api_url.trim_end_matches('/').to_string(),
-            query: query.to_string(),
-        })
+        let status = response.status();
+        if status == StatusCode::UNAUTHORIZED {
+            self.accounts.mark_revoked(&self.account);
+            bail!(
+                "GitHub account {} needs reconnecting in settings",
+                account.name
+            );
+        }
+        if !status.is_success() {
+            bail!("GitHub returned {}", error_message(status, response).await);
+        }
+        let body: SearchResponse = response
+            .json()
+            .await
+            .context("unexpected response from GitHub")?;
+        Ok(body.items.into_iter().map(Issue::into_item).collect())
     }
 }
 
@@ -229,32 +302,9 @@ impl Source for GithubSource {
     }
 
     async fn fetch(&self) -> Result<Vec<SourceItem>, SourceError> {
-        let response = self
-            .client
-            .get(format!("{}/search/issues", self.api_url))
-            .query(&[
-                ("q", self.query.as_str()),
-                ("per_page", "100"),
-                ("sort", "updated"),
-                ("order", "desc"),
-            ])
-            .send()
-            .await?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let message = response
-                .json::<ErrorResponse>()
-                .await
-                .map(|e| e.message)
-                .unwrap_or_default();
-            return Err(SourceError::Message(format!(
-                "GitHub returned {status}: {message}"
-            )));
-        }
-
-        let body: SearchResponse = response.json().await?;
-        Ok(body.items.into_iter().map(Issue::into_item).collect())
+        self.search()
+            .await
+            .map_err(|error| SourceError::Message(format!("{error:#}")))
     }
 }
 
@@ -285,6 +335,16 @@ mod tests {
             }),
             ..issue(state, None)
         }
+    }
+
+    #[test]
+    fn defaults_the_api_url() {
+        assert_eq!(api_url(None), DEFAULT_API_URL);
+        assert_eq!(api_url(Some(" ")), DEFAULT_API_URL);
+        assert_eq!(
+            api_url(Some("https://ghe.example.com/api/v3/")),
+            "https://ghe.example.com/api/v3"
+        );
     }
 
     #[test]

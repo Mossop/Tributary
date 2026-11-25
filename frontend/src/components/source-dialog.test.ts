@@ -63,6 +63,7 @@ async function open() {
         id: "a",
         provider: "google",
         name: "me",
+        api_url: null,
         missing_scopes: false,
         revoked: false,
       },

@@ -1,13 +1,127 @@
-use serde_json::json;
+//! GitHub accounts and the GitHub search source, against a mocked GitHub.
+
+mod common;
+
+use axum::http::{Method, StatusCode};
+use serde_json::{Value, json};
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use tributary::sources::github::GithubSource;
-use tributary::sources::{ItemKind, Source};
+use common::{TestApp, start};
+
+/// Mocks `/user` for `token`, as user `alice`.
+async fn mock_user(github: &MockServer, token: &str) {
+    Mock::given(method("GET"))
+        .and(path("/user"))
+        .and(header("authorization", format!("Bearer {token}").as_str()))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "id": 42, "login": "alice" })),
+        )
+        .mount(github)
+        .await;
+}
+
+async fn add_account(app: &TestApp, github: &MockServer, token: &str) -> (StatusCode, Value) {
+    app.request(
+        Method::POST,
+        "/api/accounts/github",
+        Some(json!({ "token": token, "api_url": github.uri() })),
+    )
+    .await
+}
+
+/// Adds an account for `secret` and a source searching with it.
+async fn add_source(app: &TestApp, github: &MockServer, query: &str) -> String {
+    mock_user(github, "secret").await;
+    let (status, account) = add_account(app, github, "secret").await;
+    assert_eq!(status, StatusCode::CREATED, "{account}");
+    let (status, source) = app
+        .request(
+            Method::POST,
+            "/api/sources",
+            Some(json!({
+                "type": "github",
+                "name": "PRs",
+                "contexts": ["default"],
+                "config": { "account": account["id"], "query": query },
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{source}");
+    source["id"].as_str().unwrap().to_string()
+}
+
+async fn last_error(app: &TestApp) -> Value {
+    app.get("/api/sources").await[0]["status"]["last_error"].clone()
+}
+
+#[tokio::test]
+async fn adds_accounts_from_tokens() {
+    let github = MockServer::start().await;
+    let app = start().await;
+    mock_user(&github, "secret").await;
+    mock_user(&github, "newer").await;
+
+    let (status, body) = add_account(&app, &github, " secret ").await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let id = body["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        app.get("/api/accounts").await,
+        json!([{
+            "id": id,
+            "provider": "github",
+            "name": "alice",
+            "api_url": github.uri(),
+            "missing_scopes": false,
+            "revoked": false,
+        }])
+    );
+
+    // A new token for the same user updates the account.
+    let (status, body) = add_account(&app, &github, "newer").await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(body["id"], id);
+    assert_eq!(app.get("/api/accounts").await.as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn rejects_bad_tokens() {
+    let github = MockServer::start().await;
+    let app = start().await;
+    Mock::given(method("GET"))
+        .and(path("/user"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "message": "Bad credentials",
+        })))
+        .mount(&github)
+        .await;
+
+    let (status, body) = add_account(&app, &github, "wrong").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        body["error"],
+        "GitHub didn't accept the token; check it hasn't expired"
+    );
+    let (status, body) = add_account(&app, &github, " ").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "Token is required");
+    assert_eq!(app.get("/api/accounts").await, json!([]));
+}
+
+#[tokio::test]
+async fn lists_github_as_a_token_provider() {
+    let app = start().await;
+    let providers = app.get("/api/account-providers").await;
+    assert_eq!(providers[0]["id"], "github");
+    assert_eq!(providers[0]["connect"], "token");
+    assert_eq!(providers[0]["configured"], true);
+    assert_eq!(providers[1]["connect"], "oauth");
+}
 
 #[tokio::test]
 async fn searches_and_maps_items() {
-    let server = MockServer::start().await;
+    let github = MockServer::start().await;
+    let app = start().await;
     Mock::given(method("GET"))
         .and(path("/search/issues"))
         .and(query_param("q", "is:open author:@me"))
@@ -45,67 +159,139 @@ async fn searches_and_maps_items() {
                 },
             ],
         })))
-        .expect(1)
-        .mount(&server)
+        .mount(&github)
         .await;
 
-    let source = GithubSource::new(&server.uri(), "is:open author:@me", "secret").unwrap();
-    assert_eq!(source.icon(), "https://github.com/favicon.ico");
-
-    let items = source.fetch().await.unwrap();
-    assert_eq!(items.len(), 2);
-
-    assert_eq!(items[0].id, "owner/repo#12");
-    assert_eq!(items[0].kind, ItemKind::Patch);
-    assert_eq!(items[0].title, "Fix the thing");
-    assert_eq!(items[0].url, "https://github.com/owner/repo/pull/12");
-    assert_eq!(items[0].modified.to_rfc3339(), "2026-03-04T05:06:07+00:00");
+    add_source(&app, &github, "is:open author:@me").await;
+    app.refresh("default").await;
+    assert_eq!(last_error(&app).await, Value::Null);
     assert_eq!(
-        items[0].description.as_deref(),
-        Some("owner/repo #12 · PR by alice")
+        app.get("/api/sources").await[0]["icon"],
+        "https://github.com/favicon.ico"
     );
-    assert_eq!(items[0].due, None);
-    let icon = items[0].icon.as_deref().unwrap();
-    assert!(icon.starts_with("data:image/svg+xml,%3Csvg fill='%231a7f37' "));
 
-    assert_eq!(items[1].id, "owner/other#3");
-    assert_eq!(items[1].kind, ItemKind::Issue);
-    assert_eq!(
-        items[1].description.as_deref(),
-        Some("owner/other #3 · Issue")
+    let items = app.get("/api/contexts/default/items").await;
+    // Oldest first.
+    let (issue, pr) = (&items[0], &items[1]);
+    assert_eq!(pr["id"], "owner/repo#12");
+    assert_eq!(pr["kind"], "patch");
+    assert_eq!(pr["title"], "Fix the thing");
+    assert_eq!(pr["url"], "https://github.com/owner/repo/pull/12");
+    assert_eq!(pr["modified"], "2026-03-04T05:06:07Z");
+    assert_eq!(pr["description"], "owner/repo #12 · PR by alice");
+    assert_eq!(pr["due"], Value::Null);
+    assert!(
+        pr["icon"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/svg+xml,%3Csvg fill='%231a7f37' ")
     );
-    let icon = items[1].icon.as_deref().unwrap();
-    assert!(icon.starts_with("data:image/svg+xml,%3Csvg fill='%238250df' "));
+
+    assert_eq!(issue["id"], "owner/other#3");
+    assert_eq!(issue["kind"], "issue");
+    assert_eq!(issue["description"], "owner/other #3 · Issue");
+    assert!(
+        issue["icon"]
+            .as_str()
+            .unwrap()
+            .starts_with("data:image/svg+xml,%3Csvg fill='%238250df' ")
+    );
 }
 
 #[tokio::test]
 async fn reports_api_errors() {
-    let server = MockServer::start().await;
+    let github = MockServer::start().await;
+    let app = start().await;
     Mock::given(method("GET"))
         .and(path("/search/issues"))
         .respond_with(ResponseTemplate::new(403).set_body_json(json!({
             "message": "API rate limit exceeded",
         })))
-        .mount(&server)
+        .mount(&github)
         .await;
 
-    let source = GithubSource::new(&server.uri(), "is:open", "secret").unwrap();
-    let error = source.fetch().await.unwrap_err();
+    add_source(&app, &github, "is:open").await;
+    app.refresh("default").await;
     assert_eq!(
-        error.to_string(),
+        last_error(&app).await,
         "GitHub returned 403 Forbidden: API rate limit exceeded"
     );
 }
 
 #[tokio::test]
 async fn reports_malformed_responses() {
-    let server = MockServer::start().await;
+    let github = MockServer::start().await;
+    let app = start().await;
     Mock::given(method("GET"))
         .and(path("/search/issues"))
         .respond_with(ResponseTemplate::new(200).set_body_string("not json"))
-        .mount(&server)
+        .mount(&github)
         .await;
 
-    let source = GithubSource::new(&server.uri(), "is:open", "secret").unwrap();
-    assert!(source.fetch().await.is_err());
+    add_source(&app, &github, "is:open").await;
+    app.refresh("default").await;
+    assert!(
+        last_error(&app)
+            .await
+            .as_str()
+            .unwrap()
+            .starts_with("unexpected response from GitHub")
+    );
+}
+
+#[tokio::test]
+async fn rejected_tokens_need_reconnecting() {
+    let github = MockServer::start().await;
+    let app = start().await;
+    Mock::given(method("GET"))
+        .and(path("/search/issues"))
+        .and(header("authorization", "Bearer secret"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+            "message": "Bad credentials",
+        })))
+        .mount(&github)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/search/issues"))
+        .and(header("authorization", "Bearer newer"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "items": [] })))
+        .mount(&github)
+        .await;
+
+    add_source(&app, &github, "is:open").await;
+    app.refresh("default").await;
+    assert_eq!(
+        last_error(&app).await,
+        "GitHub account alice needs reconnecting in settings"
+    );
+    assert_eq!(app.get("/api/accounts").await[0]["revoked"], true);
+
+    // A new token clears it and refreshes the source.
+    mock_user(&github, "newer").await;
+    add_account(&app, &github, "newer").await;
+    assert_eq!(app.get("/api/accounts").await[0]["revoked"], false);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    while last_error(&app).await != Value::Null {
+        assert!(tokio::time::Instant::now() < deadline, "timed out waiting");
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+}
+
+#[tokio::test]
+async fn sources_need_a_github_account() {
+    let app = start().await;
+    let (status, body) = app
+        .request(
+            Method::POST,
+            "/api/sources",
+            Some(json!({
+                "type": "github",
+                "name": "PRs",
+                "contexts": ["default"],
+                "config": { "account": "missing", "query": "is:pr" },
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "unknown account `missing`");
 }

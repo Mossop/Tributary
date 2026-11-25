@@ -23,9 +23,12 @@ frontend in `frontend/`. See README.md for features and configuration.
   fn, secret handling, OAuth scopes, select options fn) and `Registry`.
   `sources/github.rs`, `sources/google_tasks.rs`, `sources/stub.rs` are
   implementations; stub is unlisted (tests/dev only).
-- `accounts.rs` — connected accounts in SQLite (refresh tokens never leave
-  the server) and `Accounts`: cached access tokens and pending OAuth states.
-  Sources get it through `SourceContext`.
+- `accounts.rs` — connected accounts in SQLite (`secret` is a Google refresh
+  token or a GitHub access token and never leaves the server) and
+  `Accounts`: Google access tokens, GitHub credentials, revocations and
+  pending OAuth states. Sources get it through `SourceContext`. Google
+  accounts connect by OAuth; GitHub accounts are added with a token
+  (`POST /api/accounts/github`), deliberately not OAuth (see README).
 - `google.rs` — Google OAuth client (consent URL, code exchange, refresh,
   userinfo). Endpoints are configurable so tests use wiremock.
 - `db.rs` — items, item state and source status (sqlx runtime queries; sqlx
@@ -55,7 +58,8 @@ frontend in `frontend/`. See README.md for features and configuration.
 - `components/` — `app-shell` (shell), `item-row`, `date-dialog`,
   `settings-page`, `context-dialog`, `source-dialog` (form generated from the
   source type's fields), `confirm-dialog` (asks before an action and shows its
-  error; use it rather than `window.confirm`).
+  error; use it rather than `window.confirm`), `github-account-dialog` (token
+  entry).
 - `icons.ts` registers Material Symbols as Web Awesome's default icon library
   (served from node_modules in dev, copied to `dist/material-symbols` on build).
 - Style: `let` everywhere except module-level constants (ESLint `prefer-const`

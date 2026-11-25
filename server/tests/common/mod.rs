@@ -124,21 +124,33 @@ pub fn item_with_action(id: &str, modified: u32) -> SourceItem {
 
 type TestSources = Arc<Mutex<HashMap<String, Arc<TestSource>>>>;
 
-/// A `test` source type whose config is `{ "key": "<name>" }`. Each key gets
-/// its own [`TestSource`], shared between builds so tests can control it.
+/// A `test` source type whose config is `{ "key": "<name>" }`, plus an
+/// optional, unused `password` secret. Each key gets its own [`TestSource`],
+/// shared between builds so tests can control it.
 fn test_source_type(sources: TestSources) -> SourceType {
     SourceType::new(
         "test",
         "Test",
-        vec![Field {
-            key: "key",
-            label: "Key",
-            kind: FieldKind::Text,
-            required: true,
-            placeholder: None,
-            help: None,
-            provider: None,
-        }],
+        vec![
+            Field {
+                key: "key",
+                label: "Key",
+                kind: FieldKind::Text,
+                required: true,
+                placeholder: None,
+                help: None,
+                provider: None,
+            },
+            Field {
+                key: "password",
+                label: "Password",
+                kind: FieldKind::Secret,
+                required: false,
+                placeholder: None,
+                help: None,
+                provider: None,
+            },
+        ],
         move |config, _| {
             let key = config["key"].as_str().unwrap().to_string();
             let source = sources

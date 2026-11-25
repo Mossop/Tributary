@@ -19,6 +19,7 @@ let accounts: Account[] = [
     id: "a1",
     provider: "google",
     name: "me@example.com",
+    api_url: null,
     missing_scopes: false,
     revoked: false,
   },
@@ -29,6 +30,7 @@ let providers: AccountProvider[] = [
     id: "google",
     name: "Google",
     icon: "https://example.com/google.png",
+    connect: "oauth",
     configured: true,
   },
 ];

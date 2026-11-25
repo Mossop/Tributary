@@ -58,8 +58,10 @@ export interface FieldOption {
 export interface Account {
   id: string;
   provider: string;
-  /** e.g. the email address. */
+  /** e.g. the email address or login. */
   name: string;
+  /** The API the account belongs to, if not the provider's public one. */
+  api_url: string | null;
   /** Source types need access the account hasn't granted; connect it again. */
   missing_scopes: boolean;
   /** Access was revoked or expired; connect it again. */
@@ -71,6 +73,9 @@ export interface AccountProvider {
   name: string;
   /** A URL, or `symbol:<name>` for a Material Symbol. */
   icon: string;
+  /** `oauth` accounts are connected by visiting `connectUrl`; `token`
+   * accounts are added with `addTokenAccount`. */
+  connect: "oauth" | "token";
   /** Whether the server is set up to connect accounts. */
   configured: boolean;
 }
@@ -263,6 +268,19 @@ export function getAccounts() {
 
 export function deleteAccount(id: string) {
   return request<void>("DELETE", `/api/accounts/${encodeURIComponent(id)}`);
+}
+
+/** Adds an account from an access token, or updates the token of an
+ * account that was already added. */
+export function addTokenAccount(
+  provider: string,
+  body: { token: string; api_url: string | null },
+) {
+  return request<Account>(
+    "POST",
+    `/api/accounts/${encodeURIComponent(provider)}`,
+    body,
+  );
 }
 
 /** Where to send the browser to connect an account, or to reconnect

@@ -222,14 +222,16 @@ async fn connect_explains_missing_configuration() {
             .contains("Google isn't configured")
     );
     let providers = app.get("/api/account-providers").await;
+    let google = &providers[1];
     assert_eq!(
-        providers,
-        json!([{
+        google,
+        &json!({
             "id": "google",
             "name": "Google",
             "icon": "https://www.gstatic.com/images/branding/googleg/1x/googleg_standard_color_48dp.png",
+            "connect": "oauth",
             "configured": false,
-        }])
+        })
     );
 }
 
@@ -246,6 +248,7 @@ async fn connects_and_reconnects_accounts() {
             "id": id,
             "provider": "google",
             "name": "me@example.com",
+            "api_url": null,
             "missing_scopes": false,
             "revoked": false,
         }])
@@ -286,11 +289,14 @@ async fn flags_accounts_missing_scopes() {
     let app = google_app(&google).await;
     accounts::save_account(
         &app.pool,
-        "google",
-        "1",
-        "old@example.com",
-        "r",
-        "openid email",
+        &accounts::NewAccount {
+            provider: "google",
+            subject: "1",
+            name: "old@example.com",
+            secret: "r",
+            scopes: "openid email",
+            api_url: None,
+        },
     )
     .await
     .unwrap();

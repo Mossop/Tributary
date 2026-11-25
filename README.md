@@ -89,6 +89,23 @@ client_id = "…apps.googleusercontent.com"
 client_secret = "…"             # or set TRIBUTARY_GOOGLE__CLIENT_SECRET
 ```
 
+### GitHub accounts
+
+GitHub sources use a GitHub account added in the Accounts section of
+settings ("Add account" → GitHub) with a
+[personal access token](https://github.com/settings/tokens). For private
+repositories a classic token needs the `repo` scope; for organisations that
+use SSO, also authorize the token for them ("Configure SSO" on the token).
+For GitHub Enterprise, give its API URL, e.g.
+`https://github.example.com/api/v3`. The account is named after the token's
+GitHub login. If GitHub stops accepting the token, the account is marked as
+needing reconnecting: use Reconnect to give it a new token.
+
+GitHub uses tokens rather than an OAuth "connect" flow because OAuth apps
+can't read private repositories without write access to all of them either,
+need an app registered on every GitHub host, and are blocked by
+organisations that restrict third-party apps until an owner approves them.
+
 ### Google accounts
 
 Google sources use a Google account connected on the settings page. One
@@ -116,9 +133,9 @@ dot appears on the settings button.
 Every source has a name and the contexts it's shown in. Each source type adds
 its own settings:
 
-**GitHub search**: a search query (e.g. `is:open is:pr author:@me`), an access
-token, and optionally an API URL for GitHub Enterprise. Shows up to 100
-results, most recently updated first.
+**GitHub search**: a GitHub account and a search query (e.g.
+`is:open is:pr author:@me`). Shows up to 100 results, most recently updated
+first.
 
 **Google Tasks**: a Google account and a task list, or all lists. Shows
 incomplete tasks; with all lists, each task's description starts with its
@@ -127,9 +144,9 @@ midday UTC on that date. Tasks have a "Mark complete" quick action, which
 needs read and write access to Google Tasks; accounts connected before it was
 added show "Needs reconnecting" until reconnected.
 
-Secret settings such as tokens are stored in the database in plain text. They
-are never sent back to the browser; leave the field blank when editing to keep
-the saved value.
+Account tokens and secret source settings are stored in the database in
+plain text. They are never sent back to the browser; leave a secret field
+blank when editing to keep the saved value.
 
 ## Adding a source type
 

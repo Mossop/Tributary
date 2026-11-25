@@ -14,6 +14,7 @@ use crate::events::{Event, Events};
 use crate::google::{GoogleClient, GoogleError};
 
 pub const GOOGLE: &str = "google";
+pub const GITHUB: &str = "github";
 
 /// How long a connect attempt can take before its state expires.
 const STATE_LIFETIME: Duration = Duration::from_secs(10 * 60);
@@ -30,6 +31,20 @@ pub struct Account {
     /// Granted OAuth scopes, space separated.
     #[serde(skip)]
     pub scopes: String,
+    /// The API the account belongs to, if not the provider's public one.
+    pub api_url: Option<String>,
+}
+
+/// An account to add or update.
+pub struct NewAccount<'a> {
+    pub provider: &'a str,
+    /// The provider's stable id for the account.
+    pub subject: &'a str,
+    pub name: &'a str,
+    /// A refresh token (Google) or access token (GitHub).
+    pub secret: &'a str,
+    pub scopes: &'a str,
+    pub api_url: Option<&'a str>,
 }
 
 impl Account {
@@ -41,21 +56,24 @@ impl Account {
 
 pub async fn list_accounts(pool: &SqlitePool) -> sqlx::Result<Vec<Account>> {
     sqlx::query_as(
-        "SELECT id, provider, subject, name, scopes FROM accounts ORDER BY provider, name",
+        "SELECT id, provider, subject, name, scopes, api_url FROM accounts
+         ORDER BY provider, name",
     )
     .fetch_all(pool)
     .await
 }
 
 pub async fn get_account(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Account>> {
-    sqlx::query_as("SELECT id, provider, subject, name, scopes FROM accounts WHERE id = ?1")
-        .bind(id)
-        .fetch_optional(pool)
-        .await
+    sqlx::query_as(
+        "SELECT id, provider, subject, name, scopes, api_url FROM accounts WHERE id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
 }
 
-async fn refresh_token(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<String>> {
-    sqlx::query_scalar("SELECT refresh_token FROM accounts WHERE id = ?1")
+async fn secret(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar("SELECT secret FROM accounts WHERE id = ?1")
         .bind(id)
         .fetch_optional(pool)
         .await
@@ -63,30 +81,25 @@ async fn refresh_token(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Strin
 
 /// Adds an account, or updates it if the provider's account was already
 /// connected. Returns the account's id.
-pub async fn save_account(
-    pool: &SqlitePool,
-    provider: &str,
-    subject: &str,
-    name: &str,
-    refresh_token: &str,
-    scopes: &str,
-) -> sqlx::Result<String> {
+pub async fn save_account(pool: &SqlitePool, account: &NewAccount<'_>) -> sqlx::Result<String> {
     let id = uuid::Uuid::new_v4().simple().to_string();
     sqlx::query_scalar(
-        "INSERT INTO accounts (id, provider, subject, name, refresh_token, scopes)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        "INSERT INTO accounts (id, provider, subject, name, secret, scopes, api_url)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT (provider, subject) DO UPDATE SET
            name = excluded.name,
-           refresh_token = excluded.refresh_token,
-           scopes = excluded.scopes
+           secret = excluded.secret,
+           scopes = excluded.scopes,
+           api_url = excluded.api_url
          RETURNING id",
     )
     .bind(id)
-    .bind(provider)
-    .bind(subject)
-    .bind(name)
-    .bind(refresh_token)
-    .bind(scopes)
+    .bind(account.provider)
+    .bind(account.subject)
+    .bind(account.name)
+    .bind(account.secret)
+    .bind(account.scopes)
+    .bind(account.api_url)
     .fetch_one(pool)
     .await
 }
@@ -137,7 +150,8 @@ impl Accounts {
         self.revoked.lock().unwrap().contains(account_id)
     }
 
-    fn set_revoked(&self, account_id: &str) {
+    /// Records that the account's access was revoked or expired.
+    pub fn mark_revoked(&self, account_id: &str) {
         if self.revoked.lock().unwrap().insert(account_id.to_string()) {
             // Clients show which accounts need reconnecting.
             let _ = self.events.send(Event::SettingsChanged);
@@ -179,7 +193,27 @@ impl Accounts {
         self.revoked.lock().unwrap().remove(account_id);
     }
 
-    /// An access token for the account, refreshed if needed.
+    /// A GitHub account's access token and API URL.
+    pub async fn github(&self, account_id: &str) -> anyhow::Result<(Account, String)> {
+        let account = get_account(&self.pool, account_id)
+            .await?
+            .ok_or_else(|| anyhow!("the account was removed"))?;
+        if account.provider != GITHUB {
+            bail!("`{}` isn't a GitHub account", account.name);
+        }
+        if self.is_revoked(account_id) {
+            bail!(
+                "GitHub account {} needs reconnecting in settings",
+                account.name
+            );
+        }
+        let token = secret(&self.pool, account_id)
+            .await?
+            .context("the account was removed")?;
+        Ok((account, token))
+    }
+
+    /// A Google access token for the account, refreshed if needed.
     pub async fn access_token(&self, account_id: &str) -> anyhow::Result<String> {
         if let Some(token) = self.tokens.lock().unwrap().get(account_id)
             && token.expires > Instant::now()
@@ -197,13 +231,13 @@ impl Accounts {
             .google
             .as_ref()
             .ok_or_else(|| anyhow!("Google isn't configured on the server"))?;
-        let refresh_token = refresh_token(&self.pool, account_id)
+        let refresh_token = secret(&self.pool, account_id)
             .await?
             .context("the account was removed")?;
         let tokens = match google.refresh(&refresh_token).await {
             Ok(tokens) => tokens,
             Err(GoogleError::Revoked) => {
-                self.set_revoked(account_id);
+                self.mark_revoked(account_id);
                 bail!(
                     "Google account {} needs reconnecting in settings",
                     account.name
@@ -231,25 +265,33 @@ mod tests {
     use super::*;
     use crate::db;
 
+    fn google<'a>(subject: &'a str, name: &'a str, secret: &'a str) -> NewAccount<'a> {
+        NewAccount {
+            provider: GOOGLE,
+            subject,
+            name,
+            secret,
+            scopes: "openid",
+            api_url: None,
+        }
+    }
+
     #[tokio::test]
     async fn saves_and_updates_accounts() {
         let pool = db::connect_in_memory().await.unwrap();
-        let id = save_account(&pool, GOOGLE, "sub1", "a@example.com", "r1", "openid")
+        let id = save_account(&pool, &google("sub1", "a@example.com", "r1"))
             .await
             .unwrap();
-        let again = save_account(&pool, GOOGLE, "sub1", "b@example.com", "r2", "openid email")
+        let again = save_account(&pool, &google("sub1", "b@example.com", "r2"))
             .await
             .unwrap();
         assert_eq!(id, again);
         let accounts = list_accounts(&pool).await.unwrap();
         assert_eq!(accounts.len(), 1);
         assert_eq!(accounts[0].name, "b@example.com");
-        assert_eq!(
-            refresh_token(&pool, &id).await.unwrap().as_deref(),
-            Some("r2")
-        );
+        assert_eq!(secret(&pool, &id).await.unwrap().as_deref(), Some("r2"));
 
-        save_account(&pool, GOOGLE, "sub2", "c@example.com", "r3", "")
+        save_account(&pool, &google("sub2", "c@example.com", "r3"))
             .await
             .unwrap();
         assert_eq!(list_accounts(&pool).await.unwrap().len(), 2);
@@ -266,6 +308,7 @@ mod tests {
             subject: "s".into(),
             name: "n".into(),
             scopes: "openid email https://www.googleapis.com/auth/tasks.readonly".into(),
+            api_url: None,
         };
         assert!(account.has_scopes(["email", "https://www.googleapis.com/auth/tasks.readonly"]));
         assert!(!account.has_scopes(["https://www.googleapis.com/auth/gmail.readonly"]));
