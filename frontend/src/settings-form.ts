@@ -68,6 +68,20 @@ export function sourceSettings(
   return settings;
 }
 
+/** The sources configured to use an account. */
+export function sourcesUsing(
+  account: Account,
+  sources: Source[],
+  types: SourceType[],
+): Source[] {
+  return sources.filter((source) => {
+    let type = types.find((t) => t.id == source.type);
+    return type?.fields.some(
+      (f) => f.kind == "account" && source.config[f.key] == account.id,
+    );
+  });
+}
+
 /** The accounts that can be chosen for an account field. */
 export function accountsFor(
   provider: string | null,

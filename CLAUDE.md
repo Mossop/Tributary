@@ -52,9 +52,10 @@ frontend in `frontend/`. See README.md for features and configuration.
   pings; `route.ts` — `/c/<context>[/snoozed]` and `/settings` URLs;
   `format.ts` — date helpers; `settings-form.ts` — pure helpers for the
   settings forms.
-- `components/` — `dash-app` (shell), `item-row`, `date-dialog`,
+- `components/` — `app-shell` (shell), `item-row`, `date-dialog`,
   `settings-page`, `context-dialog`, `source-dialog` (form generated from the
-  source type's fields).
+  source type's fields), `confirm-dialog` (asks before an action and shows its
+  error; use it rather than `window.confirm`).
 - `icons.ts` registers Material Symbols as Web Awesome's default icon library
   (served from node_modules in dev, copied to `dist/material-symbols` on build).
 - Style: `let` everywhere except module-level constants (ESLint `prefer-const`

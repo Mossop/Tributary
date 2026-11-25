@@ -15,7 +15,9 @@ import type {
   SourceType,
 } from "../api.ts";
 import { parseIcon } from "../icons.ts";
-import { connectError } from "../settings-form.ts";
+import { connectError, sourcesUsing } from "../settings-form.ts";
+import type { ConfirmDialog } from "./confirm-dialog.ts";
+import "./confirm-dialog.ts";
 import type { Store } from "../store.ts";
 import type { ContextDialog } from "./context-dialog.ts";
 import "./context-dialog.ts";
@@ -34,6 +36,7 @@ export class SettingsPage extends LitElement {
   @state() private error: string | null = null;
   @query("context-dialog") private contextDialog!: ContextDialog;
   @query("source-dialog") private sourceDialog!: SourceDialog;
+  @query("confirm-dialog") private confirmDialog!: ConfirmDialog;
 
   static styles = css`
     :host {
@@ -123,16 +126,6 @@ export class SettingsPage extends LitElement {
     await this.store.loadSettings();
   }
 
-  /** Runs a change that has no dialog to report errors in. */
-  private async applyInline(action: () => Promise<unknown>) {
-    this.error = null;
-    try {
-      await this.apply(action);
-    } catch (error) {
-      this.error = error instanceof Error ? error.message : `${error}`;
-    }
-  }
-
   private addContext() {
     this.contextDialog.show(null, (context) =>
       this.apply(() => api.createContext(context)),
@@ -149,9 +142,15 @@ export class SettingsPage extends LitElement {
   }
 
   private deleteContext(context: Context) {
-    if (confirm(`Delete the context “${context.name}”?`)) {
-      this.applyInline(() => api.deleteContext(context.id));
-    }
+    this.confirmDialog.ask(
+      {
+        title: "Delete context",
+        message: `Delete the context “${context.name}”? Its sources stay, but are no longer shown in it.`,
+        confirm: "Delete",
+        danger: true,
+      },
+      () => this.apply(() => api.deleteContext(context.id)),
+    );
   }
 
   private connect(provider: string, account?: Account) {
@@ -159,9 +158,24 @@ export class SettingsPage extends LitElement {
   }
 
   private deleteAccount(account: Account) {
-    if (confirm(`Remove the account ${account.name}?`)) {
-      this.applyInline(() => api.deleteAccount(account.id));
+    let users = sourcesUsing(account, this.sources, this.sourceTypes);
+    if (users.length > 0) {
+      let names = users.map((s) => `“${s.name}”`).join(", ");
+      this.confirmDialog.explain(
+        "Account in use",
+        `${account.name} can't be removed while these sources use it: ${names}. Change or delete them first.`,
+      );
+      return;
     }
+    this.confirmDialog.ask(
+      {
+        title: "Remove account",
+        message: `Remove the account ${account.name}? You can connect it again later.`,
+        confirm: "Remove",
+        danger: true,
+      },
+      () => this.apply(() => api.deleteAccount(account.id)),
+    );
   }
 
   private addSource(type: SourceType) {
@@ -192,13 +206,15 @@ export class SettingsPage extends LitElement {
   }
 
   private deleteSource(source: Source) {
-    if (
-      confirm(
-        `Delete the source “${source.name}”? Its snoozes and due dates will be lost.`,
-      )
-    ) {
-      this.applyInline(() => api.deleteSource(source.id));
-    }
+    this.confirmDialog.ask(
+      {
+        title: "Delete source",
+        message: `Delete the source “${source.name}”? Its snoozes and due dates will be lost.`,
+        confirm: "Delete",
+        danger: true,
+      },
+      () => this.apply(() => api.deleteSource(source.id)),
+    );
   }
 
   private renderContexts() {
@@ -415,6 +431,7 @@ export class SettingsPage extends LitElement {
       ${this.renderContexts()} ${this.renderAccounts()} ${this.renderSources()}
       <context-dialog></context-dialog>
       <source-dialog></source-dialog>
+      <confirm-dialog></confirm-dialog>
     `;
   }
 }

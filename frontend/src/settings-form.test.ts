@@ -8,6 +8,7 @@ import {
   initialValues,
   slugify,
   sourceSettings,
+  sourcesUsing,
 } from "./settings-form.ts";
 import { makeSource } from "./test-helpers.ts";
 
@@ -106,6 +107,8 @@ describe("sourceSettings", () => {
   });
 });
 
+let githubType: SourceType = { id: "github", name: "GitHub", fields: [] };
+
 let tasks: SourceType = {
   id: "google-tasks",
   name: "Google Tasks",
@@ -178,6 +181,23 @@ describe("accounts", () => {
       account: "a",
       list: "*",
     });
+  });
+
+  it("finds the sources using an account", () => {
+    let uses = makeSource({
+      id: "s1",
+      type: "google-tasks",
+      config: { account: "a", list: "*" },
+    });
+    let other = makeSource({
+      id: "s2",
+      type: "google-tasks",
+      config: { account: "b", list: "*" },
+    });
+    let github = makeSource({ id: "s3", config: { query: "a" } });
+    expect(
+      sourcesUsing(account("a"), [uses, other, github], [tasks, githubType]),
+    ).toEqual([uses]);
   });
 
   it("reads connect errors", () => {

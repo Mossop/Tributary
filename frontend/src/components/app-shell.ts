@@ -16,8 +16,8 @@ import type { ItemActionEvent } from "./item-row.ts";
 import "./item-row.ts";
 import "./settings-page.ts";
 
-@customElement("dash-app")
-export class DashApp extends LitElement {
+@customElement("app-shell")
+export class AppShell extends LitElement {
   store = new Store();
   @state() private state: State = this.store.state;
   @query("date-dialog") private dateDialog!: DateDialog;
@@ -387,6 +387,6 @@ export class DashApp extends LitElement {
 
 declare global {
   interface HTMLElementTagNameMap {
-    "dash-app": DashApp;
+    "app-shell": AppShell;
   }
 }

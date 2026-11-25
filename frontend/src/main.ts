@@ -1,6 +1,6 @@
 import "./styles.css";
 import { registerMaterialSymbols } from "./icons.ts";
-import "./components/dash-app.ts";
+import "./components/app-shell.ts";
 
 registerMaterialSymbols();
 
