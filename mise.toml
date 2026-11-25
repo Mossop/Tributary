@@ -1,6 +1,7 @@
 [tools]
 rust = { version = "1.96", components = "clippy,rustfmt" }
 node = "26"
+watchexec = "2.8"
 
 [tasks.install]
 description = "Install frontend dependencies"
@@ -26,12 +27,40 @@ depends = ["build:frontend", "build:server"]
 [tasks."dev:server"]
 description = "Run the server against tributary.toml"
 run = "cargo run --manifest-path server/Cargo.toml"
+# For `mise watch`. Migrations are embedded in the binary.
+sources = [
+  "server/Cargo.toml",
+  "server/Cargo.lock",
+  "server/src/**/*",
+  "server/migrations/**/*",
+  "tributary.toml",
+]
 
 [tasks."dev:frontend"]
 description = "Run the Vite dev server (proxies /api to :8080)"
 depends = ["install"]
 dir = "frontend"
 run = "npm run dev"
+# For `mise watch`. Vite reloads changes to the app itself, so only its
+# configuration and dependencies need a restart.
+sources = ["package.json", "package-lock.json", "vite.config.ts"]
+
+[tasks.dev]
+description = "Run the server and Vite dev server, restarting them when their sources change"
+depends = ["watch:server", "watch:frontend"]
+
+# `npm ci` rewrites node_modules, and the flood of file events makes both
+# watchers restart, killing it before it finishes. So install before either
+# watcher starts, and don't rerun it under the watcher.
+[tasks."watch:server"]
+hide = true
+depends = ["install"]
+run = "mise watch --restart dev:server"
+
+[tasks."watch:frontend"]
+hide = true
+depends = ["install"]
+run = "mise watch --restart --skip-deps dev:frontend"
 
 [tasks."test:server"]
 description = "Run server tests"
@@ -75,7 +104,24 @@ run = [
 [tasks."docker:build"]
 description = "Build the Docker image"
 run = "docker build -t tributary ."
+# Everything the Dockerfile copies, so unchanged builds are skipped. Use
+# `mise run docker:build --force` to build anyway.
+sources = [
+  "Dockerfile",
+  ".dockerignore",
+  "server/Cargo.toml",
+  "server/Cargo.lock",
+  "server/src/**/*",
+  "server/migrations/**/*",
+  "frontend/package.json",
+  "frontend/package-lock.json",
+  "frontend/index.html",
+  "frontend/tsconfig.json",
+  "frontend/vite.config.ts",
+  "frontend/src/**/*",
+]
 
 [tasks."docker:run"]
 description = "Run the Docker image with ./tributary.toml and a ./data volume"
+depends = ["docker:build"]
 run = "docker run --rm -p 8080:8080 -v \"$PWD/tributary.toml:/config/tributary.toml:ro\" -v \"$PWD/data:/data\" tributary"

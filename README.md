@@ -39,8 +39,9 @@ mise run docker:build
 mise run docker:run
 ```
 
-`docker:run` mounts `./tributary.toml` at `/config/tributary.toml` and stores the
-database in `./data`. In the image the database path and frontend directory
+`docker:run` builds the image first if any of its sources changed, then mounts
+`./tributary.toml` at `/config/tributary.toml` and stores the database in
+`./data`. Use `mise run docker:build --force` to rebuild regardless. In the image the database path and frontend directory
 are preset with environment variables, so they don't need setting in the
 config file.
 
@@ -48,12 +49,17 @@ config file.
 
 ```sh
 mise install
+mise run dev            # both of the below, restarted when their sources change
 mise run dev:server     # API and built frontend on :8080
-mise run dev:frontend   # Vite dev server, proxies /api to :8080
+mise run dev:frontend   # Vite dev server on :5173, proxies /api to :8080
 ```
 
-`dev:server` serves `frontend/dist`, so run `mise run build:frontend` first
-if you want the built frontend instead of the Vite dev server.
+`mise run dev` restarts the server when its code, migrations or
+`tributary.toml` change, and Vite when its configuration or dependencies
+change (Vite reloads the app itself). Use `mise watch dev:server` or
+`mise watch dev:frontend` to watch just one. `dev:server` serves
+`frontend/dist`, so run `mise run build:frontend` first if you want the built
+frontend instead of the Vite dev server.
 
 ## Configuration
 

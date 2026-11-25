@@ -5,8 +5,10 @@ frontend in `frontend/`. See README.md for features and configuration.
 
 ## Tooling
 
-- Use mise tasks (`mise tasks`): `test`, `lint`, `fmt`, `build`, `dev:server`,
-  `dev:frontend`, `docker:build`, `docker:run`. Pass `-C <repo root>` rather
+- Use mise tasks (`mise tasks`): `test`, `lint`, `fmt`, `build`, `dev` (both
+  dev servers under `mise watch`), `dev:server`, `dev:frontend`,
+  `docker:build` (skipped when its `sources` are unchanged), `docker:run`.
+  Keep task `sources` up to date when adding files the tasks depend on. Pass `-C <repo root>` rather
   than changing directory.
 - Version control is jujutsu (`jj`), colocated with git.
 
