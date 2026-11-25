@@ -27,7 +27,8 @@ depends = ["build:frontend", "build:server"]
 [tasks."dev:server"]
 description = "Run the server against tributary.toml"
 run = "cargo run --manifest-path server/Cargo.toml"
-# For `mise watch`. Migrations are embedded in the binary.
+# For `mise watch`. Migrations are embedded in the binary. `outputs = []`
+# stops `mise run` skipping the task when its sources are unchanged.
 sources = [
   "server/Cargo.toml",
   "server/Cargo.lock",
@@ -35,6 +36,7 @@ sources = [
   "server/migrations/**/*",
   "tributary.toml",
 ]
+outputs = []
 
 [tasks."dev:frontend"]
 description = "Run the Vite dev server (proxies /api to :8080)"
@@ -42,8 +44,10 @@ depends = ["install"]
 dir = "frontend"
 run = "npm run dev"
 # For `mise watch`. Vite reloads changes to the app itself, so only its
-# configuration and dependencies need a restart.
+# configuration and dependencies need a restart. `outputs = []` stops
+# `mise run` skipping the task when its sources are unchanged.
 sources = ["package.json", "package-lock.json", "vite.config.ts"]
+outputs = []
 
 [tasks.dev]
 description = "Run the server and Vite dev server, restarting them when their sources change"
