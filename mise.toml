@@ -1,0 +1,81 @@
+[tools]
+rust = { version = "1.96", components = "clippy,rustfmt" }
+node = "26"
+
+[tasks.install]
+description = "Install frontend dependencies"
+dir = "frontend"
+run = "npm ci"
+sources = ["package.json", "package-lock.json"]
+outputs = ["node_modules/.package-lock.json"]
+
+[tasks."build:frontend"]
+description = "Build the frontend into frontend/dist"
+depends = ["install"]
+dir = "frontend"
+run = "npm run build"
+
+[tasks."build:server"]
+description = "Build the server (release)"
+run = "cargo build --release --manifest-path server/Cargo.toml"
+
+[tasks.build]
+description = "Build frontend and server"
+depends = ["build:frontend", "build:server"]
+
+[tasks."dev:server"]
+description = "Run the server against config.toml"
+run = "cargo run --manifest-path server/Cargo.toml -- --config config.toml"
+
+[tasks."dev:frontend"]
+description = "Run the Vite dev server (proxies /api to :8080)"
+depends = ["install"]
+dir = "frontend"
+run = "npm run dev"
+
+[tasks."test:server"]
+description = "Run server tests"
+run = "cargo test --manifest-path server/Cargo.toml"
+
+[tasks."test:frontend"]
+description = "Run frontend unit tests"
+depends = ["install"]
+dir = "frontend"
+run = "npm test"
+
+[tasks.test]
+description = "Run all tests"
+depends = ["test:server", "test:frontend"]
+
+[tasks."lint:server"]
+description = "Check Rust formatting and clippy"
+run = [
+  "cargo fmt --manifest-path server/Cargo.toml --check",
+  "cargo clippy --manifest-path server/Cargo.toml --all-targets -- -D warnings",
+]
+
+[tasks."lint:frontend"]
+description = "Typecheck, eslint and prettier check the frontend"
+depends = ["install"]
+dir = "frontend"
+run = "npm run lint"
+
+[tasks.lint]
+description = "Lint everything"
+depends = ["lint:server", "lint:frontend"]
+
+[tasks.fmt]
+description = "Format all code"
+depends = ["install"]
+run = [
+  "cargo fmt --manifest-path server/Cargo.toml",
+  "npm --prefix frontend run format",
+]
+
+[tasks."docker:build"]
+description = "Build the Docker image"
+run = "docker build -t dashboard ."
+
+[tasks."docker:run"]
+description = "Run the Docker image with ./config.toml and a ./data volume"
+run = "docker run --rm -p 8080:8080 -e GITHUB_TOKEN -v \"$PWD/config.toml:/config/config.toml:ro\" -v \"$PWD/data:/data\" dashboard"

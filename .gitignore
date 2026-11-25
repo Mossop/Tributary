@@ -1,0 +1,9 @@
+/.miserc.toml
+/server/target/
+/frontend/node_modules/
+/frontend/dist/
+/data/
+/config.toml
+*.db
+*.db-shm
+*.db-wal
