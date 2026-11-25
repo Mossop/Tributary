@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, SqlitePool};
 
+use crate::sources::ItemKind;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
 pub struct Context {
     /// The slug used in URLs.
@@ -12,6 +14,11 @@ pub struct Context {
     /// Material Symbol name.
     #[serde(default)]
     pub icon: Option<String>,
+    /// Item kinds not shown in the context. Changed with
+    /// [`set_hidden_kinds`]; ignored when creating or updating a context.
+    #[serde(default)]
+    #[sqlx(json)]
+    pub hidden_kinds: Vec<ItemKind>,
 }
 
 pub const DEFAULT_CONTEXT: &str = "default";
@@ -30,13 +37,13 @@ pub struct SourceRecord {
 }
 
 pub async fn list_contexts(pool: &SqlitePool) -> sqlx::Result<Vec<Context>> {
-    sqlx::query_as("SELECT id, name, icon FROM contexts ORDER BY position, rowid")
+    sqlx::query_as("SELECT id, name, icon, hidden_kinds FROM contexts ORDER BY position, rowid")
         .fetch_all(pool)
         .await
 }
 
 pub async fn get_context(pool: &SqlitePool, id: &str) -> sqlx::Result<Option<Context>> {
-    sqlx::query_as("SELECT id, name, icon FROM contexts WHERE id = ?1")
+    sqlx::query_as("SELECT id, name, icon, hidden_kinds FROM contexts WHERE id = ?1")
         .bind(id)
         .fetch_optional(pool)
         .await
@@ -65,6 +72,21 @@ pub async fn update_context(pool: &SqlitePool, id: &str, context: &Context) -> s
         .bind(&context.id)
         .bind(&context.name)
         .bind(&context.icon)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// Sets which item kinds a context hides. Returns false if there was no
+/// context with `id`.
+pub async fn set_hidden_kinds(
+    pool: &SqlitePool,
+    id: &str,
+    kinds: &[ItemKind],
+) -> sqlx::Result<bool> {
+    let result = sqlx::query("UPDATE contexts SET hidden_kinds = ?1 WHERE id = ?2")
+        .bind(serde_json::to_string(kinds).expect("kinds serialize"))
         .bind(id)
         .execute(pool)
         .await?;
@@ -105,6 +127,7 @@ pub async fn ensure_default_context(pool: &SqlitePool) -> sqlx::Result<()> {
                 id: DEFAULT_CONTEXT.to_string(),
                 name: "Default".to_string(),
                 icon: None,
+                hidden_kinds: Vec::new(),
             },
         )
         .await?;
@@ -239,6 +262,7 @@ mod tests {
             id: id.to_string(),
             name: id.to_uppercase(),
             icon: None,
+            hidden_kinds: Vec::new(),
         }
     }
 
@@ -253,6 +277,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stores_hidden_kinds() {
+        let pool = connect_in_memory().await.unwrap();
+        insert_context(&pool, &context("work")).await.unwrap();
+        assert!(
+            set_hidden_kinds(&pool, "work", &[ItemKind::Task, ItemKind::Patch])
+                .await
+                .unwrap()
+        );
+        let work = get_context(&pool, "work").await.unwrap().unwrap();
+        assert_eq!(work.hidden_kinds, [ItemKind::Task, ItemKind::Patch]);
+
+        // Updating the rest of the context keeps them.
+        update_context(&pool, "work", &context("office"))
+            .await
+            .unwrap();
+        let office = get_context(&pool, "office").await.unwrap().unwrap();
+        assert_eq!(office.hidden_kinds, [ItemKind::Task, ItemKind::Patch]);
+
+        assert!(!set_hidden_kinds(&pool, "nope", &[]).await.unwrap());
+    }
+
+    #[tokio::test]
     async fn default_context_created_only_when_empty() {
         let pool = connect_in_memory().await.unwrap();
         ensure_default_context(&pool).await.unwrap();
@@ -263,7 +309,8 @@ mod tests {
             [Context {
                 id: "default".to_string(),
                 name: "Default".to_string(),
-                icon: None
+                icon: None,
+                hidden_kinds: Vec::new(),
             }]
         );
     }

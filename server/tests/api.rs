@@ -67,6 +67,7 @@ async fn items_are_filtered_by_context_and_sorted() {
         json!({
             "source_id": app.id("b"),
             "id": "4",
+            "kind": "task",
             "title": "Item 4",
             "url": "https://example.com/4",
             "icon": null,

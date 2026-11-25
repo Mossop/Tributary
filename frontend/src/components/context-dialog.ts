@@ -6,10 +6,10 @@ import "@awesome.me/webawesome/dist/components/dialog/dialog.js";
 import "@awesome.me/webawesome/dist/components/icon/icon.js";
 import "@awesome.me/webawesome/dist/components/input/input.js";
 
-import type { Context } from "../api.ts";
+import type { Context, ContextSettings } from "../api.ts";
 import { slugify } from "../settings-form.ts";
 
-type Save = (context: Context) => Promise<void>;
+type Save = (context: ContextSettings) => Promise<void>;
 
 /** Adds or edits a context. */
 @customElement("context-dialog")

@@ -17,7 +17,7 @@ use tower::ServiceExt;
 
 use tributary::config::Config;
 use tributary::sources::{
-    Field, FieldKind, QuickAction, Registry, Source, SourceError, SourceItem, SourceType,
+    Field, FieldKind, ItemKind, QuickAction, Registry, Source, SourceError, SourceItem, SourceType,
 };
 use tributary::{Workspace, api, db};
 
@@ -99,6 +99,7 @@ pub fn time(day: u32) -> DateTime<Utc> {
 pub fn item(id: &str, modified: u32, due: Option<u32>) -> SourceItem {
     SourceItem {
         id: id.to_string(),
+        kind: ItemKind::Task,
         title: format!("Item {id}"),
         url: format!("https://example.com/{id}"),
         icon: None,

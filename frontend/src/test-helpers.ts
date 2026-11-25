@@ -6,6 +6,7 @@ export function makeItem(fields: Partial<Item> = {}): Item {
   return {
     source_id: "gh",
     id: "owner/repo#1",
+    kind: "patch",
     title: "Fix the thing",
     url: "https://github.com/owner/repo/pull/1",
     icon: null,

@@ -8,6 +8,7 @@ import "@awesome.me/webawesome/dist/components/icon/icon.js";
 import "@awesome.me/webawesome/dist/components/spinner/spinner.js";
 
 import { type Route, parseRoute, routeUrl } from "../route.ts";
+import { ITEM_KINDS, visibleItems } from "../kinds.ts";
 import { Store, type State, itemKey } from "../store.ts";
 import type { DateDialog } from "./date-dialog.ts";
 import "./date-dialog.ts";
@@ -68,8 +69,20 @@ export class DashApp extends LitElement {
       overflow: hidden;
     }
 
-    item-row + item-row {
+    item-row,
+    .list > .empty {
       border-top: var(--wa-border-width-s) solid var(--wa-color-surface-border);
+    }
+
+    .kinds {
+      display: flex;
+      gap: var(--wa-space-2xs);
+      padding: var(--wa-space-2xs) var(--wa-space-s);
+    }
+
+    /* A hidden kind's button is dimmed. */
+    .kinds wa-button[aria-pressed="false"] {
+      opacity: 0.4;
     }
 
     .empty {
@@ -279,11 +292,38 @@ export class DashApp extends LitElement {
     </wa-callout>`;
   }
 
+  /** Buttons showing and hiding each kind of item. */
+  private renderKinds() {
+    let hidden = this.store.hiddenKinds();
+    return html`<div class="kinds">
+      ${ITEM_KINDS.map(({ kind, label, icon }) => {
+        let shown = !hidden.includes(kind);
+        let title = `${shown ? "Hide" : "Show"} ${label.toLowerCase()}`;
+        return html`<wa-button
+          appearance="plain"
+          size="small"
+          title=${title}
+          aria-pressed=${shown ? "true" : "false"}
+          data-kind=${kind}
+          @click=${() => this.store.toggleKind(kind)}
+        >
+          <wa-icon name=${icon} label=${title}></wa-icon>
+        </wa-button>`;
+      })}
+    </div>`;
+  }
+
   private renderItems() {
     let { items, sources, route, loaded } = this.state;
     let snoozed = route.view == "snoozed";
     if (!loaded) {
       return html`<div class="empty"><wa-spinner></wa-spinner></div>`;
+    }
+    let shown = visibleItems(items, this.store.hiddenKinds());
+    if (items.length > 0 && shown.length == 0) {
+      return html`<div class="empty">
+        Everything here is hidden by the filters above.
+      </div>`;
     }
     if (items.length == 0) {
       if (!snoozed && this.store.contextSources().length == 0) {
@@ -305,7 +345,7 @@ export class DashApp extends LitElement {
     }
     let now = new Date();
     let sourcesById = new Map(sources.map((s) => [s.id, s]));
-    return items.map(
+    return shown.map(
       (item) =>
         html`<item-row
           .item=${item}
@@ -332,7 +372,7 @@ export class DashApp extends LitElement {
     return html`
       ${route.view == "snoozed" ? html`<h2>Snoozed</h2>` : nothing}
       <div class="list" @item-action=${this.onItemAction}>
-        ${this.renderItems()}
+        ${this.renderKinds()} ${this.renderItems()}
       </div>
     `;
   }

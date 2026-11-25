@@ -9,8 +9,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{
-    Field, FieldKind, FieldOption, QuickAction, Source, SourceContext, SourceError, SourceItem,
-    SourceType,
+    Field, FieldKind, FieldOption, ItemKind, QuickAction, Source, SourceContext, SourceError,
+    SourceItem, SourceType,
 };
 use crate::accounts::{Accounts, GOOGLE};
 
@@ -134,6 +134,7 @@ impl Task {
         SourceItem {
             // Completing a task needs its list.
             id: format!("{list_id}/{}", self.id),
+            kind: ItemKind::Task,
             title,
             url: self.web_view_link.unwrap_or_else(|| TASKS_URL.to_string()),
             icon: None,
@@ -355,6 +356,7 @@ mod tests {
         }))
         .into_item("inbox", None);
         assert_eq!(item.id, "inbox/t1");
+        assert_eq!(item.kind, ItemKind::Task);
         assert_eq!(item.actions.len(), 1);
         assert_eq!(item.actions[0].id, "complete");
         assert_eq!(item.title, "Buy milk");

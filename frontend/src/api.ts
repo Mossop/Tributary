@@ -1,10 +1,19 @@
 /** Client for the server's JSON API. Timestamps are RFC 3339 strings. */
 
-export interface Context {
+/** What kind of thing an item is. */
+export type ItemKind = "task" | "issue" | "patch";
+
+/** The settings edited when creating or updating a context. */
+export interface ContextSettings {
   id: string;
   name: string;
   /** Material Symbol name. */
   icon: string | null;
+}
+
+export interface Context extends ContextSettings {
+  /** Item kinds not shown in the context. */
+  hidden_kinds: ItemKind[];
 }
 
 export interface SourceStatus {
@@ -92,6 +101,7 @@ export interface QuickAction {
 export interface Item {
   source_id: string;
   id: string;
+  kind: ItemKind;
   title: string;
   url: string;
   icon: string | null;
@@ -208,13 +218,18 @@ export function pingActivity() {
   return request<void>("POST", "/api/activity");
 }
 
-export function createContext(context: Context) {
+export function createContext(context: ContextSettings) {
   return request<Context>("POST", "/api/contexts", context);
 }
 
 /** Updates a context. `context.id` may differ from `id` to change its URL. */
-export function updateContext(id: string, context: Context) {
+export function updateContext(id: string, context: ContextSettings) {
   return request<Context>("PUT", contextPath(id), context);
+}
+
+/** Sets which item kinds a context hides. */
+export function setHiddenKinds(context: string, kinds: ItemKind[]) {
+  return request<Context>("PUT", `${contextPath(context)}/hidden-kinds`, kinds);
 }
 
 export function deleteContext(id: string) {

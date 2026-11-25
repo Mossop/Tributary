@@ -2,8 +2,8 @@ use serde_json::json;
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use tributary::sources::Source;
 use tributary::sources::github::GithubSource;
+use tributary::sources::{ItemKind, Source};
 
 #[tokio::test]
 async fn searches_and_maps_items() {
@@ -56,6 +56,7 @@ async fn searches_and_maps_items() {
     assert_eq!(items.len(), 2);
 
     assert_eq!(items[0].id, "owner/repo#12");
+    assert_eq!(items[0].kind, ItemKind::Patch);
     assert_eq!(items[0].title, "Fix the thing");
     assert_eq!(items[0].url, "https://github.com/owner/repo/pull/12");
     assert_eq!(items[0].modified.to_rfc3339(), "2026-03-04T05:06:07+00:00");
@@ -68,6 +69,7 @@ async fn searches_and_maps_items() {
     assert!(icon.starts_with("data:image/svg+xml,%3Csvg fill='%231a7f37' "));
 
     assert_eq!(items[1].id, "owner/other#3");
+    assert_eq!(items[1].kind, ItemKind::Issue);
     assert_eq!(
         items[1].description.as_deref(),
         Some("owner/other #3 · Issue")

@@ -6,8 +6,8 @@ import { type EventSourceLike, Store } from "./store.ts";
 import { makeItem, makeSource, mockFetch } from "./test-helpers.ts";
 
 let contexts: Context[] = [
-  { id: "work", name: "Work", icon: "work" },
-  { id: "home", name: "Home", icon: null },
+  { id: "work", name: "Work", icon: "work", hidden_kinds: [] },
+  { id: "home", name: "Home", icon: null, hidden_kinds: [] },
 ];
 
 let sourceTypes: SourceType[] = [
@@ -172,6 +172,42 @@ describe("Store", () => {
     ]);
   });
 
+  it("hides kinds in the current context", async () => {
+    routes();
+    await store.start(work);
+    expect(store.hiddenKinds()).toEqual([]);
+
+    let calls = routes();
+    let done = store.toggleKind("task");
+    // Shown straight away, before the server replies.
+    expect(store.hiddenKinds()).toEqual(["task"]);
+    await done;
+    await store.toggleKind("patch");
+    await store.toggleKind("task");
+    expect(store.hiddenKinds()).toEqual(["patch"]);
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ["PUT", "/api/contexts/work/hidden-kinds", ["task"]],
+      ["PUT", "/api/contexts/work/hidden-kinds", ["task", "patch"]],
+      ["PUT", "/api/contexts/work/hidden-kinds", ["patch"]],
+    ]);
+    // Other contexts are unaffected.
+    expect(store.state.contexts[1].hidden_kinds).toEqual([]);
+  });
+
+  it("undoes a kind change the server rejects", async () => {
+    routes();
+    await store.start(work);
+    routes({
+      "PUT /api/contexts/work/hidden-kinds": new Response(
+        JSON.stringify({ error: "database error" }),
+        { status: 500 },
+      ),
+    });
+    await store.toggleKind("issue");
+    expect(store.hiddenKinds()).toEqual([]);
+    expect(store.state.error).toBe("database error");
+  });
+
   it("snoozes and reloads", async () => {
     let calls = routes();
     await store.start(work);
@@ -283,7 +319,10 @@ describe("Store", () => {
     routes();
     await store.start(work);
 
-    let renamed = [{ id: "office", name: "Office", icon: null }, contexts[1]];
+    let renamed = [
+      { id: "office", name: "Office", icon: null, hidden_kinds: [] },
+      contexts[1],
+    ];
     let calls = routes({ "GET /api/contexts": renamed });
     events.emit({ type: "settings-changed" });
     await vi.waitFor(() => expect(store.state.contexts).toEqual(renamed));

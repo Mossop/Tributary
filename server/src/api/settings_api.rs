@@ -12,7 +12,7 @@ use crate::accounts;
 use crate::db::{self, SourceStatus};
 use crate::events::Event;
 use crate::settings::{self, Context, SourceRecord};
-use crate::sources::{Field, FieldKind, FieldOption, SourceType};
+use crate::sources::{Field, FieldKind, FieldOption, ItemKind, SourceType};
 
 fn settings_changed(ws: &Workspace) {
     let _ = ws.events.send(Event::SettingsChanged);
@@ -38,6 +38,8 @@ fn validate_context(body: Context) -> ApiResult<Context> {
             .icon
             .map(|i| i.trim().to_string())
             .filter(|i| !i.is_empty()),
+        // Set separately, with `set_hidden_kinds`.
+        hidden_kinds: Vec::new(),
     };
     if !valid_slug(&context.id) {
         return Err(ApiError::BadRequest(
@@ -67,7 +69,10 @@ pub async fn create_context(
     ensure_context_id_free(&ws, &context.id).await?;
     settings::insert_context(&ws.pool, &context).await?;
     settings_changed(&ws);
-    Ok((StatusCode::CREATED, Json(context)))
+    Ok((
+        StatusCode::CREATED,
+        Json(find_context(&ws, &context.id).await?),
+    ))
 }
 
 pub async fn update_context(
@@ -82,7 +87,21 @@ pub async fn update_context(
     }
     settings::update_context(&ws.pool, &id, &context).await?;
     settings_changed(&ws);
-    Ok(Json(context))
+    Ok(Json(find_context(&ws, &context.id).await?))
+}
+
+/// Sets which item kinds a context hides.
+pub async fn set_hidden_kinds(
+    State(ws): State<AppState>,
+    Path(id): Path<String>,
+    Json(mut kinds): Json<Vec<ItemKind>>,
+) -> ApiResult<Json<Context>> {
+    find_context(&ws, &id).await?;
+    kinds.sort_by_key(|k| k.as_str());
+    kinds.dedup();
+    settings::set_hidden_kinds(&ws.pool, &id, &kinds).await?;
+    settings_changed(&ws);
+    Ok(Json(find_context(&ws, &id).await?))
 }
 
 pub async fn delete_context(

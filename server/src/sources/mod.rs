@@ -33,11 +33,44 @@ pub mod github;
 pub mod google_tasks;
 pub mod stub;
 
+/// What kind of thing an item is. Every item is one of these, so the
+/// dashboard can show or hide each kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ItemKind {
+    /// Something to do, e.g. a Google task.
+    Task,
+    /// A reported problem or request, e.g. a GitHub issue.
+    Issue,
+    /// A proposed change, e.g. a GitHub pull request.
+    Patch,
+}
+
+impl ItemKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ItemKind::Task => "task",
+            ItemKind::Issue => "issue",
+            ItemKind::Patch => "patch",
+        }
+    }
+
+    pub fn parse(kind: &str) -> Option<Self> {
+        match kind {
+            "task" => Some(ItemKind::Task),
+            "issue" => Some(ItemKind::Issue),
+            "patch" => Some(ItemKind::Patch),
+            _ => None,
+        }
+    }
+}
+
 /// An item produced by a source.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SourceItem {
     /// Identifier, unique within the source and stable across fetches.
     pub id: String,
+    pub kind: ItemKind,
     pub title: String,
     /// Where to view the full details of the item.
     pub url: String,

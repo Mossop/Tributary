@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT};
 use serde::Deserialize;
 
-use super::{Field, FieldKind, Source, SourceError, SourceItem, SourceType};
+use super::{Field, FieldKind, ItemKind, Source, SourceError, SourceItem, SourceType};
 
 const ICON: &str = "https://github.com/favicon.ico";
 
@@ -198,10 +198,10 @@ impl Issue {
             .split_once("/repos/")
             .map(|(_, repo)| repo.to_string())
             .unwrap_or(self.repository_url);
-        let kind = if self.pull_request.is_some() {
-            "PR"
+        let (kind, item_kind) = if self.pull_request.is_some() {
+            ("PR", ItemKind::Patch)
         } else {
-            "Issue"
+            ("Issue", ItemKind::Issue)
         };
         let description = match self.user {
             Some(user) => format!("{repo} #{} · {kind} by {}", self.number, user.login),
@@ -210,6 +210,7 @@ impl Issue {
 
         SourceItem {
             id: format!("{repo}#{}", self.number),
+            kind: item_kind,
             title: self.title,
             url: self.html_url,
             icon: Some(icon),

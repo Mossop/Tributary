@@ -8,7 +8,7 @@ use serde::Serialize;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{FromRow, SqlitePool};
 
-use crate::sources::{QuickAction, SourceItem};
+use crate::sources::{ItemKind, QuickAction, SourceItem};
 
 pub async fn connect(path: &Path) -> anyhow::Result<SqlitePool> {
     if let Some(parent) = path.parent() {
@@ -48,6 +48,7 @@ fn from_ms(ms: i64) -> DateTime<Utc> {
 pub struct Item {
     pub source_id: String,
     pub id: String,
+    pub kind: ItemKind,
     pub title: String,
     pub url: String,
     pub icon: Option<String>,
@@ -66,6 +67,7 @@ pub struct Item {
 struct ItemRow {
     source_id: String,
     item_id: String,
+    kind: String,
     title: String,
     url: String,
     icon: Option<String>,
@@ -83,6 +85,7 @@ impl From<ItemRow> for Item {
         Item {
             source_id: row.source_id,
             id: row.item_id,
+            kind: ItemKind::parse(&row.kind).unwrap_or(ItemKind::Task),
             title: row.title,
             url: row.url,
             icon: row.icon,
@@ -124,7 +127,7 @@ pub async fn list_items(
     let source_ids = serde_json::to_string(source_ids).expect("ids serialize");
     let rows: Vec<ItemRow> = sqlx::query_as(
         r#"
-        SELECT i.source_id, i.item_id, i.title, i.url, i.icon, i.description,
+        SELECT i.source_id, i.item_id, i.kind, i.title, i.url, i.icon, i.description,
                i.modified, i.due, s.due_override, s.snoozed_until,
                COALESCE(s.snoozed_forever, 0) AS snoozed_forever, i.actions
         FROM items i
@@ -187,12 +190,13 @@ pub async fn replace_items(
         sqlx::query(
             r#"
             INSERT OR REPLACE INTO items
-                (source_id, item_id, title, url, icon, description, modified, due, actions)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                (source_id, item_id, kind, title, url, icon, description, modified, due, actions)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             "#,
         )
         .bind(source_id)
         .bind(&item.id)
+        .bind(item.kind.as_str())
         .bind(&item.title)
         .bind(&item.url)
         .bind(&item.icon)
@@ -355,6 +359,7 @@ mod tests {
     fn item(id: &str, modified: u32, due: Option<u32>) -> SourceItem {
         SourceItem {
             id: id.to_string(),
+            kind: ItemKind::Task,
             title: format!("Item {id}"),
             url: format!("https://example.com/{id}"),
             icon: None,

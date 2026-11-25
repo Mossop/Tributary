@@ -16,7 +16,7 @@ async fn creates_default_context() {
     let app = start().await;
     assert_eq!(
         app.get("/api/contexts").await,
-        json!([{ "id": "default", "name": "Default", "icon": null }])
+        json!([{ "id": "default", "name": "Default", "icon": null, "hidden_kinds": [] }])
     );
 }
 
@@ -33,7 +33,7 @@ async fn creates_and_updates_contexts() {
     assert_eq!(status, StatusCode::CREATED);
     assert_eq!(
         body,
-        json!({ "id": "work", "name": "Work", "icon": "work" })
+        json!({ "id": "work", "name": "Work", "icon": "work", "hidden_kinds": [] })
     );
 
     let (status, _) = app
@@ -48,10 +48,61 @@ async fn creates_and_updates_contexts() {
     assert_eq!(
         app.get("/api/contexts").await,
         json!([
-            { "id": "personal", "name": "Personal", "icon": null },
-            { "id": "work", "name": "Work", "icon": "work" },
+            { "id": "personal", "name": "Personal", "icon": null, "hidden_kinds": [] },
+            { "id": "work", "name": "Work", "icon": "work", "hidden_kinds": [] },
         ])
     );
+}
+
+#[tokio::test]
+async fn contexts_remember_hidden_kinds() {
+    let app = start().await;
+    let mut events = app.workspace.events.subscribe();
+    let (status, body) = app
+        .request(
+            Method::PUT,
+            "/api/contexts/default/hidden-kinds",
+            Some(json!(["task", "patch", "task"])),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["hidden_kinds"], json!(["patch", "task"]));
+    assert_eq!(
+        events.try_recv().unwrap(),
+        tributary::events::Event::SettingsChanged
+    );
+
+    // Editing the context doesn't change them, even if the body has some.
+    let (status, body) = app
+        .request(
+            Method::PUT,
+            "/api/contexts/default",
+            Some(json!({ "id": "default", "name": "Home", "hidden_kinds": [] })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["hidden_kinds"], json!(["patch", "task"]));
+    assert_eq!(
+        app.get("/api/contexts").await[0]["hidden_kinds"],
+        json!(["patch", "task"])
+    );
+
+    let (status, _) = app
+        .request(
+            Method::PUT,
+            "/api/contexts/default/hidden-kinds",
+            Some(json!(["bogus"])),
+        )
+        .await;
+    assert!(status.is_client_error());
+    let (status, _) = app
+        .request(
+            Method::PUT,
+            "/api/contexts/nope/hidden-kinds",
+            Some(json!([])),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

@@ -9,6 +9,9 @@ list, so you can see everything you need to do in one place.
   the header moves between them.
 - Items are sorted with those that have a due date first (soonest first),
   followed by the rest, least recently modified first.
+- Every item is a **task**, an **issue** or a **patch** (e.g. a pull request).
+  Buttons at the top of the list show or hide each kind; each context
+  remembers its choice.
 - Items can be **snoozed** until a date and time, or forever. The snoozed view
   (`/c/<context>/snoozed`) lists them and lets you unsnooze them.
 - An item's **due date can be overridden**.
@@ -144,7 +147,8 @@ pub trait Source: Send + Sync {
 }
 ```
 
-Each `SourceItem` has a stable `id`, `title`, `url`, `modified`, and optional
+Each `SourceItem` has a stable `id`, a `kind` (`ItemKind::Task`, `Issue` or
+`Patch`), `title`, `url`, `modified`, and optional
 `description`, `due`, `icon` (used instead of the source's icon) and
 `actions`. Each quick action has an `id` passed to `perform`, a `label` and
 an `icon`; the dashboard refreshes the source after performing one. An item's

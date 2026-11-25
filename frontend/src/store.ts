@@ -4,10 +4,12 @@ import type {
   AccountProvider,
   Context,
   Item,
+  ItemKind,
   ServerEvent,
   Source,
   SourceType,
 } from "./api.ts";
+import { toggleKind } from "./kinds.ts";
 import type { Route } from "./route.ts";
 
 /** Identifies an item across sources. */
@@ -165,6 +167,38 @@ export class Store extends EventTarget {
       return "A source couldn't update";
     }
     return null;
+  }
+
+  /** The kinds hidden in the current context. */
+  hiddenKinds(): ItemKind[] {
+    let context = this.state.contexts.find(
+      (c) => c.id == this.state.route.context,
+    );
+    return context?.hidden_kinds ?? [];
+  }
+
+  /** Shows or hides a kind of item in the current context. The change is
+   * shown straight away and saved in the background. */
+  async toggleKind(kind: ItemKind) {
+    let id = this.state.route.context;
+    if (id == null) {
+      return;
+    }
+    let before = this.hiddenKinds();
+    let setHidden = (hidden: ItemKind[]) =>
+      this.update({
+        contexts: this.state.contexts.map((c) =>
+          c.id == id ? { ...c, hidden_kinds: hidden } : c,
+        ),
+      });
+    let hidden = toggleKind(before, kind);
+    setHidden(hidden);
+    try {
+      await api.setHiddenKinds(id, hidden);
+    } catch (error) {
+      setHidden(before);
+      this.fail(error);
+    }
   }
 
   /** The sources shown in the current context. */

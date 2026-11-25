@@ -14,6 +14,7 @@ function item(fields: Partial<Item> = {}): Item {
   return {
     source_id: "s",
     id: "1",
+    kind: "task",
     title: "Item",
     url: "https://example.com",
     icon: null,

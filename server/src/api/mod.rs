@@ -33,6 +33,10 @@ pub fn router(workspace: AppState) -> Router {
             "/contexts/{context}",
             put(settings_api::update_context).delete(settings_api::delete_context),
         )
+        .route(
+            "/contexts/{context}/hidden-kinds",
+            put(settings_api::set_hidden_kinds),
+        )
         .route("/contexts/{context}/items", get(items::context_items))
         .route("/contexts/{context}/snoozed", get(items::context_snoozed))
         .route("/contexts/{context}/refresh", post(items::refresh_context))

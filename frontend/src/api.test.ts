@@ -83,6 +83,16 @@ describe("api", () => {
     expect(calls[0].url).toBe("/api/items/gh/inbox%2Ft1/actions/complete");
   });
 
+  it("sets hidden kinds", async () => {
+    let calls = mockFetch();
+    await api.setHiddenKinds("a b", ["task", "patch"]);
+    expect(calls[0]).toEqual({
+      method: "PUT",
+      url: "/api/contexts/a%20b/hidden-kinds",
+      body: ["task", "patch"],
+    });
+  });
+
   it("sends due overrides", async () => {
     let calls = mockFetch();
     await api.setDue(makeItem(), new Date("2026-02-01T09:00:00Z"));
