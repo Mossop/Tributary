@@ -78,4 +78,4 @@ run = "docker build -t dashboard ."
 
 [tasks."docker:run"]
 description = "Run the Docker image with ./config.toml and a ./data volume"
-run = "docker run --rm -p 8080:8080 -e GITHUB_TOKEN -v \"$PWD/config.toml:/config/config.toml:ro\" -v \"$PWD/data:/data\" dashboard"
+run = "docker run --rm -p 8080:8080 -v \"$PWD/config.toml:/config/config.toml:ro\" -v \"$PWD/data:/data\" dashboard"

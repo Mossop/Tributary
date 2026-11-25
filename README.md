@@ -15,20 +15,23 @@ everything you need to do in one place.
 - Sources are polled on their own schedule, more slowly while nobody is using
   the dashboard. Opening the dashboard refreshes everything, and there is a
   refresh button. Updates are pushed to the browser as they arrive.
+- Contexts and sources are managed on the **settings page** (`/settings`, the
+  gear button). Changes take effect immediately, with no server restart. On
+  first run there is a single "Default" context, which you can rename.
 
-Currently available sources: GitHub (issue/PR search) and a stub source with
-fixed items.
+Currently available source types: GitHub (issue/PR search). There is also a
+stub type with fixed items, used for tests and not offered in settings.
 
 ## Running
 
-Copy `config.example.toml` to `config.toml` and edit it (see
-[Configuration](#configuration)).
+Server settings can optionally be put in a config file; copy
+`config.example.toml` to `config.toml` (see [Configuration](#configuration)).
 
 ### Docker
 
 ```sh
 mise run docker:build
-GITHUB_TOKEN=... mise run docker:run
+mise run docker:run
 ```
 
 `docker:run` mounts `./config.toml` at `/config/config.toml` and stores the
@@ -40,8 +43,8 @@ config file.
 
 ```sh
 mise install
-GITHUB_TOKEN=... mise run dev:server   # API and built frontend on :8080
-mise run dev:frontend                  # Vite dev server, proxies /api to :8080
+mise run dev:server     # API and built frontend on :8080
+mise run dev:frontend   # Vite dev server, proxies /api to :8080
 ```
 
 `dev:server` serves `frontend/dist`, so run `mise run build:frontend` first
@@ -49,9 +52,11 @@ if you want the built frontend instead of the Vite dev server.
 
 ## Configuration
 
-A TOML file (default `config.toml`, change it with `--config`). Any value can
-be overridden with environment variables prefixed `DASHBOARD_`, with `__`
-between nested keys, e.g. `DASHBOARD_SERVER__LISTEN=127.0.0.1:9000`.
+Only server settings live in configuration; contexts and sources are stored in
+the database. The config file is optional (default `config.toml`, change it
+with `--config`). Any value can be overridden with environment variables
+prefixed `DASHBOARD_`, with `__` between nested keys, e.g.
+`DASHBOARD_SERVER__LISTEN=127.0.0.1:9000`.
 
 ```toml
 [server]                        # all optional
@@ -59,38 +64,22 @@ listen = "0.0.0.0:8080"
 database = "data/dashboard.db"
 static_dir = "frontend/dist"
 active_timeout = "5m"           # idle after this long with no client activity
-
-[[contexts]]
-id = "work"                     # used in the URL
-name = "Work"
-icon = "work"                   # optional Material Symbol name
-
-[[sources]]
-id = "my-prs"                   # unique, stable: user state is keyed on it
-type = "github"
-name = "My pull requests"
-contexts = ["work"]
-interval = "5m"                 # polling while active (default 5m)
-idle_interval = "30m"           # polling while idle (default 30m)
-# ...plus settings for the source type
 ```
 
-### `github`
+### Source settings
 
-| Key         | Default                  | Description                                   |
-| ----------- | ------------------------ | --------------------------------------------- |
-| `query`     | required                 | A GitHub issue search, e.g. `is:open is:pr author:@me` |
-| `token_env` | `GITHUB_TOKEN`           | Environment variable holding an API token     |
-| `api_url`   | `https://api.github.com` | API base URL (e.g. for GitHub Enterprise)     |
+Every source has a name, the contexts it's shown in and two polling intervals
+(while active and while idle). Each source type adds its own settings:
 
-Shows up to 100 results, most recently updated first.
+**GitHub search**: a search query (e.g. `is:open is:pr author:@me`), an access
+token, and optionally an API URL for GitHub Enterprise. Shows up to 100
+results, most recently updated first.
 
-### `stub`
+Secret settings such as tokens are stored in the database in plain text. They
+are never sent back to the browser; leave the field blank when editing to keep
+the saved value.
 
-Fixed items listed in `[[sources.items]]` tables with `id`, `title`, `url`,
-`modified` and optionally `description`, `due` and `icon`.
-
-## Adding a source
+## Adding a source type
 
 Sources implement the `Source` trait in `server/src/sources/mod.rs`:
 
@@ -109,9 +98,12 @@ Each `SourceItem` has a stable `id`, `title`, `url`, `modified`, and optional
 
 1. Add a module under `server/src/sources/` with a `Deserialize` config struct
    and the `Source` implementation.
-2. Add a variant to `SourceKind` in `server/src/config.rs`. Its lowercase name
-   is the `type` in configuration.
-3. Add a match arm in `build_source`.
+2. Describe the type with a `SourceType`: an id, a display name, its settings
+   as a list of `Field`s (key, label, kind `text`/`url`/`secret`, required,
+   placeholder, help), and a function building the source from its JSON
+   config. The settings page builds its form from the fields, so no frontend
+   changes are needed. See `github::source_type()`.
+3. Register it in `Registry::builtin()`.
 4. Test it by intercepting its HTTP calls with wiremock (see
    `server/tests/github.rs`). Give the source a configurable API base URL so
    tests can point it at the mock server.

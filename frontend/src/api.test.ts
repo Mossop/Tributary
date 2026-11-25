@@ -7,6 +7,47 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("settings api", () => {
+  it("manages contexts", async () => {
+    let context = { id: "work", name: "Work", icon: null };
+    let calls = mockFetch({
+      "POST /api/contexts": context,
+      "PUT /api/contexts/default": context,
+    });
+    expect(await api.createContext(context)).toEqual(context);
+    await api.updateContext("default", context);
+    await api.deleteContext("a b");
+    expect(calls.map((c) => [c.method, c.url, c.body])).toEqual([
+      ["POST", "/api/contexts", context],
+      ["PUT", "/api/contexts/default", context],
+      ["DELETE", "/api/contexts/a%20b", undefined],
+    ]);
+  });
+
+  it("manages sources", async () => {
+    let settings = {
+      type: "github",
+      name: "PRs",
+      contexts: ["work"],
+      interval_ms: 1000,
+      idle_interval_ms: 2000,
+      config: { query: "is:pr" },
+    };
+    let calls = mockFetch({ "GET /api/source-types": [] });
+    expect(await api.getSourceTypes()).toEqual([]);
+    await api.createSource(settings);
+    await api.updateSource("abc", settings);
+    await api.deleteSource("abc");
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      "GET /api/source-types",
+      "POST /api/sources",
+      "PUT /api/sources/abc",
+      "DELETE /api/sources/abc",
+    ]);
+    expect(calls[1].body).toEqual(settings);
+  });
+});
+
 describe("api", () => {
   it("fetches items for a context", async () => {
     let items = [makeItem()];

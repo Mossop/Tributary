@@ -15,10 +15,45 @@ export interface SourceStatus {
 
 export interface Source {
   id: string;
+  /** The source type id. */
+  type: string;
   name: string;
+  /** Empty if the source isn't running, e.g. because its settings are invalid. */
   icon: string;
   contexts: string[];
+  interval_ms: number;
+  idle_interval_ms: number;
+  /** Type specific settings, excluding secrets. */
+  config: Record<string, unknown>;
+  /** Keys of secret settings that have a value. */
+  secrets_set: string[];
   status: SourceStatus;
+}
+
+export interface Field {
+  key: string;
+  label: string;
+  kind: "text" | "url" | "secret";
+  required: boolean;
+  placeholder: string | null;
+  help: string | null;
+}
+
+export interface SourceType {
+  id: string;
+  name: string;
+  fields: Field[];
+}
+
+/** The settings sent when creating or updating a source. */
+export interface SourceSettings {
+  /** Only used when creating. */
+  type?: string;
+  name: string;
+  contexts: string[];
+  interval_ms: number;
+  idle_interval_ms: number;
+  config: Record<string, unknown>;
 }
 
 export interface Item {
@@ -37,7 +72,8 @@ export interface Item {
 
 export type ServerEvent =
   | { type: "source-updated"; source_id: string }
-  | { type: "item-state-changed"; source_id: string; item_id: string };
+  | { type: "item-state-changed"; source_id: string; item_id: string }
+  | { type: "settings-changed" };
 
 export class ApiError extends Error {
   constructor(
@@ -127,4 +163,38 @@ export function clearDue(item: Item) {
 /** Tells the server the dashboard is in use. */
 export function pingActivity() {
   return request<void>("POST", "/api/activity");
+}
+
+export function createContext(context: Context) {
+  return request<Context>("POST", "/api/contexts", context);
+}
+
+/** Updates a context. `context.id` may differ from `id` to change its URL. */
+export function updateContext(id: string, context: Context) {
+  return request<Context>("PUT", contextPath(id), context);
+}
+
+export function deleteContext(id: string) {
+  return request<void>("DELETE", contextPath(id));
+}
+
+export function getSourceTypes() {
+  return request<SourceType[]>("GET", "/api/source-types");
+}
+
+function sourcePath(id: string) {
+  return `/api/sources/${encodeURIComponent(id)}`;
+}
+
+export function createSource(settings: SourceSettings) {
+  return request<Source>("POST", "/api/sources", settings);
+}
+
+/** Updates a source. Secrets left empty keep their saved value. */
+export function updateSource(id: string, settings: SourceSettings) {
+  return request<Source>("PUT", sourcePath(id), settings);
+}
+
+export function deleteSource(id: string) {
+  return request<void>("DELETE", sourcePath(id));
 }

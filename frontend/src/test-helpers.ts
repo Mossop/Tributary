@@ -22,9 +22,14 @@ export function makeItem(fields: Partial<Item> = {}): Item {
 export function makeSource(fields: Partial<Source> = {}): Source {
   return {
     id: "gh",
+    type: "github",
     name: "GitHub",
     icon: "https://github.com/favicon.ico",
     contexts: ["work"],
+    interval_ms: 300_000,
+    idle_interval_ms: 1_800_000,
+    config: {},
+    secrets_set: [],
     status: { last_attempt: null, last_success: null, last_error: null },
     ...fields,
   };

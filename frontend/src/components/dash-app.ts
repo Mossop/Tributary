@@ -13,6 +13,7 @@ import type { DateDialog } from "./date-dialog.ts";
 import "./date-dialog.ts";
 import type { ItemActionEvent } from "./item-row.ts";
 import "./item-row.ts";
+import "./settings-page.ts";
 
 @customElement("dash-app")
 export class DashApp extends LitElement {
@@ -33,6 +34,11 @@ export class DashApp extends LitElement {
       align-items: center;
       gap: var(--wa-space-s);
       margin-bottom: var(--wa-space-m);
+    }
+
+    header h1 {
+      font-size: var(--wa-font-size-xl);
+      margin: 0;
     }
 
     .spacer {
@@ -68,9 +74,14 @@ export class DashApp extends LitElement {
 
   private onChange = () => {
     this.state = this.store.state;
-    // Reflect a defaulted route (e.g. "/" -> "/c/work") in the URL.
-    let url = routeUrl(this.state.route);
-    if (this.state.route.context != null && url != location.pathname) {
+    // Reflect a defaulted or redirected route (e.g. "/" -> "/c/work") in the
+    // URL.
+    let { route } = this.state;
+    let url = routeUrl(route);
+    if (
+      (route.context != null || route.view == "settings") &&
+      url != location.pathname
+    ) {
       history.replaceState(null, "", url);
     }
   };
@@ -81,8 +92,8 @@ export class DashApp extends LitElement {
 
   private currentRoute(): Route {
     let route = parseRoute(location.pathname);
-    if (route.context == null) {
-      return { context: this.store.defaultContext(), snoozed: false };
+    if (route.view != "settings" && route.context == null) {
+      return this.store.homeRoute();
     }
     return route;
   }
@@ -91,7 +102,9 @@ export class DashApp extends LitElement {
     super.connectedCallback();
     this.store.addEventListener("change", this.onChange);
     window.addEventListener("popstate", this.onPopState);
-    this.start();
+    // A route without a context is defaulted by the store; onChange then
+    // updates the URL.
+    this.store.start(parseRoute(location.pathname));
   }
 
   disconnectedCallback() {
@@ -99,12 +112,6 @@ export class DashApp extends LitElement {
     this.store.removeEventListener("change", this.onChange);
     window.removeEventListener("popstate", this.onPopState);
     this.store.stop();
-  }
-
-  private start() {
-    // A route without a context is defaulted by the store; onChange then
-    // updates the URL.
-    this.store.start(parseRoute(location.pathname));
   }
 
   private async go(route: Route) {
@@ -151,7 +158,7 @@ export class DashApp extends LitElement {
     let { contexts, route } = this.state;
     let current = contexts.find((c) => c.id == route.context);
     let onSelect = (event: CustomEvent<{ item: { value: string } }>) =>
-      this.go({ context: event.detail.item.value, snoozed: route.snoozed });
+      this.go({ view: route.view, context: event.detail.item.value });
 
     return html`<wa-dropdown @wa-select=${onSelect}>
       <wa-button slot="trigger" appearance="plain" with-caret>
@@ -182,21 +189,33 @@ export class DashApp extends LitElement {
 
   private renderHeader() {
     let { route, refreshing } = this.state;
+    if (route.view == "settings") {
+      return html`<header>
+        <wa-button
+          appearance="plain"
+          title="Back"
+          @click=${() => this.go(this.store.homeRoute())}
+        >
+          <wa-icon name="arrow_back" label="Back"></wa-icon>
+        </wa-button>
+        <h1>Settings</h1>
+      </header>`;
+    }
     return html`<header>
       ${this.renderContextSwitcher()}
       <span class="spacer"></span>
       ${
-        route.snoozed
+        route.view == "snoozed"
           ? html`<wa-button
               appearance="plain"
-              @click=${() => this.go({ ...route, snoozed: false })}
+              @click=${() => this.go({ ...route, view: "items" })}
             >
               <wa-icon slot="start" name="arrow_back"></wa-icon>
               Back
             </wa-button>`
           : html`<wa-button
               appearance="plain"
-              @click=${() => this.go({ ...route, snoozed: true })}
+              @click=${() => this.go({ ...route, view: "snoozed" })}
             >
               <wa-icon slot="start" name="snooze"></wa-icon>
               Snoozed
@@ -210,13 +229,21 @@ export class DashApp extends LitElement {
       >
         <wa-icon name="refresh" label="Refresh"></wa-icon>
       </wa-button>
+      <wa-button
+        appearance="plain"
+        title="Settings"
+        @click=${() => this.go({ view: "settings", context: null })}
+      >
+        <wa-icon name="settings" label="Settings"></wa-icon>
+      </wa-button>
     </header>`;
   }
 
   private renderErrors() {
-    let failing = this.store
-      .contextSources()
-      .filter((s) => s.status.last_error);
+    let failing =
+      this.state.route.view == "settings"
+        ? []
+        : this.store.contextSources().filter((s) => s.status.last_error);
     return html`
       ${
         this.state.error
@@ -238,12 +265,26 @@ export class DashApp extends LitElement {
 
   private renderItems() {
     let { items, sources, route, loaded } = this.state;
+    let snoozed = route.view == "snoozed";
     if (!loaded) {
       return html`<div class="empty"><wa-spinner></wa-spinner></div>`;
     }
     if (items.length == 0) {
+      if (!snoozed && this.store.contextSources().length == 0) {
+        return html`<div class="empty">
+          No sources are shown in this context yet. Add one in
+          <a
+            href="/settings"
+            @click=${(e: Event) => {
+              e.preventDefault();
+              this.go({ view: "settings", context: null });
+            }}
+            >settings</a
+          >.
+        </div>`;
+      }
       return html`<div class="empty">
-        ${route.snoozed ? "Nothing is snoozed." : "Nothing to do."}
+        ${snoozed ? "Nothing is snoozed." : "Nothing to do."}
       </div>`;
     }
     let now = new Date();
@@ -254,18 +295,32 @@ export class DashApp extends LitElement {
           .item=${item}
           .source=${sourcesById.get(item.source_id)}
           .now=${now}
-          ?snoozed=${route.snoozed}
+          ?snoozed=${snoozed}
         ></item-row>`,
     );
   }
 
-  render() {
+  private renderBody() {
+    let { route } = this.state;
+    if (route.view == "settings") {
+      return html`<settings-page
+        .store=${this.store}
+        .contexts=${this.state.contexts}
+        .sources=${this.state.sources}
+        .sourceTypes=${this.state.sourceTypes}
+      ></settings-page>`;
+    }
     return html`
-      ${this.renderHeader()} ${this.renderErrors()}
-      ${this.state.route.snoozed ? html`<h2>Snoozed</h2>` : nothing}
+      ${route.view == "snoozed" ? html`<h2>Snoozed</h2>` : nothing}
       <div class="list" @item-action=${this.onItemAction}>
         ${this.renderItems()}
       </div>
+    `;
+  }
+
+  render() {
+    return html`
+      ${this.renderHeader()} ${this.renderErrors()} ${this.renderBody()}
       <date-dialog></date-dialog>
     `;
   }
