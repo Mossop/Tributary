@@ -7,9 +7,11 @@ import {
   isOverdue,
   linkify,
   relativeTime,
+  duePresets,
   snoozePresets,
   toLocalInput,
 } from "./format.ts";
+import type { DatePreset } from "./format.ts";
 
 function item(fields: Partial<Item> = {}): Item {
   return {
@@ -92,24 +94,84 @@ describe("relativeTime", () => {
   });
 });
 
+/** Labels and local dates of presets, e.g. "Tomorrow 1/8 9:00". */
+function described(presets: DatePreset[]): string[] {
+  return presets.map(
+    ({ label, date }) =>
+      `${label} ${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, "0")}`,
+  );
+}
+
 describe("snoozePresets", () => {
-  it("offers later today, tomorrow morning and next Monday morning", () => {
-    // A Wednesday afternoon, local time.
-    let now = new Date(2026, 0, 7, 14, 30);
-    let [later, tomorrow, nextWeek] = snoozePresets(now);
-    expect(later.until).toEqual(new Date(2026, 0, 7, 17, 30));
-    expect(tomorrow.until).toEqual(new Date(2026, 0, 8, 9, 0));
-    expect(nextWeek.until).toEqual(new Date(2026, 0, 12, 9, 0));
+  // January 2026: the 5th is a Monday.
+  it("offers tomorrow, the weekend, next week and next month", () => {
+    let wednesday = new Date(2026, 0, 7, 14, 30);
+    expect(described(snoozePresets(wednesday))).toEqual([
+      "Tomorrow 1/8 9:00",
+      "This weekend 1/10 9:00",
+      "Next week 1/12 9:00",
+      "Next month 2/1 9:00",
+    ]);
   });
 
-  it("goes to the following Monday when today is Monday", () => {
-    let now = new Date(2026, 0, 12, 8, 0);
-    expect(snoozePresets(now)[2].until).toEqual(new Date(2026, 0, 19, 9, 0));
+  it("skips the weekend on a Friday", () => {
+    let friday = new Date(2026, 0, 9, 8, 0);
+    expect(described(snoozePresets(friday))).toEqual([
+      "Tomorrow 1/10 9:00",
+      "Next week 1/12 9:00",
+      "Next month 2/1 9:00",
+    ]);
   });
 
-  it("goes to Monday when today is Sunday", () => {
-    let now = new Date(2026, 0, 11, 8, 0);
-    expect(snoozePresets(now)[2].until).toEqual(new Date(2026, 0, 12, 9, 0));
+  it("offers next weekend during a weekend", () => {
+    let saturday = new Date(2026, 0, 10, 8, 0);
+    expect(described(snoozePresets(saturday))).toEqual([
+      "Tomorrow 1/11 9:00",
+      "Next week 1/12 9:00",
+      "Next weekend 1/17 9:00",
+      "Next month 2/1 9:00",
+    ]);
+    // On Sunday, next week is tomorrow.
+    let sunday = new Date(2026, 0, 11, 8, 0);
+    expect(described(snoozePresets(sunday))).toEqual([
+      "Tomorrow 1/12 9:00",
+      "Next weekend 1/17 9:00",
+      "Next month 2/1 9:00",
+    ]);
+  });
+
+  it("sorts by date", () => {
+    // The 1st of next month is a Sunday, before next week's Monday.
+    let thursday = new Date(2026, 0, 29, 8, 0);
+    expect(described(snoozePresets(thursday))).toEqual([
+      "Tomorrow 1/30 9:00",
+      "This weekend 1/31 9:00",
+      "Next month 2/1 9:00",
+      "Next week 2/2 9:00",
+    ]);
+    // And on the last day of the month it's tomorrow.
+    let lastDay = new Date(2026, 2, 31, 8, 0);
+    expect(described(snoozePresets(lastDay))).toEqual([
+      "Tomorrow 4/1 9:00",
+      "This weekend 4/4 9:00",
+      "Next week 4/6 9:00",
+    ]);
+  });
+
+  it("goes to the following Monday on a Monday", () => {
+    let monday = new Date(2026, 0, 12, 8, 0);
+    expect(described(snoozePresets(monday))).toContain("Next week 1/19 9:00");
+  });
+});
+
+describe("duePresets", () => {
+  it("offers tomorrow, the weekend and next week", () => {
+    let wednesday = new Date(2026, 0, 7, 14, 30);
+    expect(described(duePresets(wednesday))).toEqual([
+      "Tomorrow 1/8 9:00",
+      "This weekend 1/10 9:00",
+      "Next week 1/12 9:00",
+    ]);
   });
 });
 

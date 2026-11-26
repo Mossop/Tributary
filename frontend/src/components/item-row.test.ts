@@ -32,6 +32,12 @@ async function render(fields: Partial<ItemRow>) {
   return row;
 }
 
+/** The due date menu opened by the calendar button. */
+function dueMenu(row: ItemRow): Element {
+  return row.shadowRoot!.querySelector("wa-button[title='Due date']")!
+    .parentElement!;
+}
+
 afterEach(() => {
   document.body.replaceChildren();
 });
@@ -129,6 +135,77 @@ describe("item-row", () => {
     expect(actions[1]).toEqual({ action: "snooze-custom", item });
     expect(actions[2]).toMatchObject({ action: "snooze", item });
     expect((actions[2] as { until: Date }).until.getHours()).toBe(9);
+  });
+
+  it("fires due date actions from the menu", async () => {
+    let item = makeItem();
+    let row = await render({ item });
+    let actions: ItemAction[] = [];
+    row.addEventListener("item-action", (e) => actions.push(e.detail));
+
+    let menu = dueMenu(row);
+    let labels = [...menu.querySelectorAll("wa-dropdown-item")].map(
+      (i) => i.textContent!.trim().split("\n")[0],
+    );
+    // A Saturday: tomorrow, then next week, then next weekend.
+    expect(labels).toEqual([
+      "Tomorrow",
+      "Next week",
+      "Next weekend",
+      "Pick a date…",
+    ]);
+
+    let select = (value: string) =>
+      menu.dispatchEvent(
+        new CustomEvent("wa-select", { detail: { item: { value } } }),
+      );
+    select("0");
+    select("custom");
+    expect(actions[0]).toMatchObject({ action: "due", item });
+    expect((actions[0] as { due: Date }).due).toEqual(
+      new Date(2026, 0, 11, 9, 0),
+    );
+    expect(actions[1]).toEqual({ action: "due-custom", item });
+  });
+
+  it("opens the due date menu from the badge", async () => {
+    let item = makeItem({ due: "2026-01-20T00:00:00Z" });
+    let row = await render({ item });
+    let actions: ItemAction[] = [];
+    row.addEventListener("item-action", (e) => actions.push(e.detail));
+
+    let trigger = row.shadowRoot!.querySelector("button.due-trigger")!;
+    expect(trigger.getAttribute("slot")).toBe("trigger");
+    expect(trigger.querySelector("wa-tag")!.textContent).toContain("Due");
+    let menu = trigger.parentElement!;
+    expect(menu.localName).toBe("wa-dropdown");
+    let values = [...menu.querySelectorAll("wa-dropdown-item")].map((i) =>
+      i.getAttribute("value"),
+    );
+    expect(values).toEqual(
+      [...dueMenu(row).querySelectorAll("wa-dropdown-item")].map((i) =>
+        i.getAttribute("value"),
+      ),
+    );
+    menu.dispatchEvent(
+      new CustomEvent("wa-select", { detail: { item: { value: "custom" } } }),
+    );
+    expect(actions).toEqual([{ action: "due-custom", item }]);
+  });
+
+  it("offers clearing an overridden due date", async () => {
+    let item = makeItem({ due_override: "2026-01-20T00:00:00Z" });
+    let row = await render({ item });
+    let actions: ItemAction[] = [];
+    row.addEventListener("item-action", (e) => actions.push(e.detail));
+    let menu = dueMenu(row);
+    expect(
+      menu.querySelector("wa-dropdown-item[value='clear']"),
+    ).not.toBeNull();
+    menu.dispatchEvent(
+      new CustomEvent("wa-select", { detail: { item: { value: "clear" } } }),
+    );
+    expect(actions).toEqual([{ action: "clear-due", item }]);
   });
 
   it("fires quick actions", async () => {

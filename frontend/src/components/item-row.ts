@@ -1,4 +1,4 @@
-import { LitElement, css, html, nothing } from "lit";
+import { LitElement, type TemplateResult, css, html, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import "@awesome.me/webawesome/dist/components/button/button.js";
 import "@awesome.me/webawesome/dist/components/dropdown/dropdown.js";
@@ -14,6 +14,7 @@ import {
   isOverdue,
   linkify,
   relativeTime,
+  duePresets,
   snoozePresets,
 } from "../format.ts";
 import { parseIcon } from "../icons.ts";
@@ -22,6 +23,7 @@ export type ItemAction =
   | { action: "snooze"; item: Item; until: Date | null }
   | { action: "snooze-custom"; item: Item }
   | { action: "unsnooze"; item: Item }
+  | { action: "due"; item: Item; due: Date }
   | { action: "due-custom"; item: Item }
   | { action: "clear-due"; item: Item }
   | { action: "quick"; item: Item; id: string };
@@ -115,6 +117,18 @@ export class ItemRow extends LitElement {
       display: flex;
     }
 
+    /* The due date badge is a button opening the due date menu. */
+    .due-trigger {
+      all: unset;
+      cursor: pointer;
+      border-radius: var(--wa-border-radius-m);
+    }
+
+    .due-trigger:focus-visible {
+      outline: var(--wa-focus-ring);
+      outline-offset: var(--wa-focus-ring-offset);
+    }
+
     /* wa-tag lays its content out inline with a tall line height, which
        leaves icons on the text's baseline rather than centred on it. */
     .tag-content {
@@ -147,18 +161,62 @@ export class ItemRow extends LitElement {
       return nothing;
     }
     let overdue = isOverdue(this.item, this.now);
-    return html`<wa-tag
-      size="s"
-      variant=${overdue ? "danger" : "neutral"}
-      title=${absoluteTime(due)}
-    >
-      <span class="tag-content">
-        <wa-icon
-          name=${this.item.due_override ? "edit_calendar" : "event"}
-        ></wa-icon>
-        Due ${relativeTime(due, this.now)}
-      </span>
-    </wa-tag>`;
+    // Clicking the badge opens the due date menu.
+    return this.renderDueMenu(
+      html`<button
+        slot="trigger"
+        class="due-trigger"
+        title="${absoluteTime(due)}. Change the due date"
+      >
+        <wa-tag size="s" variant=${overdue ? "danger" : "neutral"}>
+          <span class="tag-content">
+            <wa-icon
+              name=${this.item.due_override ? "edit_calendar" : "event"}
+            ></wa-icon>
+            Due ${relativeTime(due, this.now)}
+          </span>
+        </wa-tag>
+      </button>`,
+      "bottom-start",
+    );
+  }
+
+  /** The due date menu, opened by `trigger` (which has `slot="trigger"`). */
+  private renderDueMenu(trigger: TemplateResult, placement: string) {
+    let presets = duePresets(this.now);
+    let onSelect = (event: CustomEvent<{ item: { value: string } }>) => {
+      let value = event.detail.item.value;
+      if (value == "clear") {
+        this.fire({ action: "clear-due", item: this.item });
+      } else if (value == "custom") {
+        this.fire({ action: "due-custom", item: this.item });
+      } else {
+        this.fire({
+          action: "due",
+          item: this.item,
+          due: presets[Number(value)].date,
+        });
+      }
+    };
+    return html`<wa-dropdown placement=${placement} @wa-select=${onSelect}>
+      ${trigger}
+      ${presets.map(
+        (preset, index) =>
+          html`<wa-dropdown-item value=${String(index)}>
+            ${preset.label}
+            <span slot="details">${absoluteTime(preset.date)}</span>
+          </wa-dropdown-item>`,
+      )}
+      <wa-dropdown-item value="custom">Pick a date…</wa-dropdown-item>
+      ${
+        this.item.due_override
+          ? html`<wa-divider></wa-divider>
+              <wa-dropdown-item value="clear"
+                >Clear due date override</wa-dropdown-item
+              >`
+          : nothing
+      }
+    </wa-dropdown>`;
   }
 
   private renderSnoozedUntil() {
@@ -225,16 +283,9 @@ export class ItemRow extends LitElement {
         this.fire({
           action: "snooze",
           item: this.item,
-          until: presets[Number(value)].until,
+          until: presets[Number(value)].date,
         });
       }
-    };
-    let onDue = (event: CustomEvent<{ item: { value: string } }>) => {
-      let value = event.detail.item.value;
-      this.fire({
-        action: value == "clear" ? "clear-due" : "due-custom",
-        item: this.item,
-      });
     };
 
     return html`
@@ -247,26 +298,19 @@ export class ItemRow extends LitElement {
           (preset, index) =>
             html`<wa-dropdown-item value=${String(index)}>
               ${preset.label}
-              <span slot="details">${absoluteTime(preset.until)}</span>
+              <span slot="details">${absoluteTime(preset.date)}</span>
             </wa-dropdown-item>`,
         )}
         <wa-dropdown-item value="custom">Pick a date…</wa-dropdown-item>
         <wa-divider></wa-divider>
         <wa-dropdown-item value="forever">Forever</wa-dropdown-item>
       </wa-dropdown>
-      <wa-dropdown placement="bottom-end" @wa-select=${onDue}>
-        <wa-button slot="trigger" appearance="plain" title="Due date">
+      ${this.renderDueMenu(
+        html`<wa-button slot="trigger" appearance="plain" title="Due date">
           <wa-icon name="edit_calendar" label="Due date"></wa-icon>
-        </wa-button>
-        <wa-dropdown-item value="set">Set due date…</wa-dropdown-item>
-        ${
-          this.item.due_override
-            ? html`<wa-dropdown-item value="clear"
-                >Clear due date override</wa-dropdown-item
-              >`
-            : nothing
-        }
-      </wa-dropdown>
+        </wa-button>`,
+        "bottom-end",
+      )}
     `;
   }
 

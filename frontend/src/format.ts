@@ -40,30 +40,61 @@ export function absoluteTime(date: Date, locale?: string): string {
   });
 }
 
-export interface SnoozePreset {
+export interface DatePreset {
   label: string;
-  until: Date;
+  date: Date;
 }
 
-/** Common times to snooze until, in local time. */
-export function snoozePresets(now: Date): SnoozePreset[] {
-  let laterToday = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+/** 9am, `days` days after `now`'s date. */
+function morning(now: Date, days: number): Date {
+  let date = new Date(now);
+  date.setDate(date.getDate() + days);
+  date.setHours(9, 0, 0, 0);
+  return date;
+}
 
-  let tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(9, 0, 0, 0);
+/**
+ * Common future dates, all at 9am local time, in date order: tomorrow, the
+ * weekend (Saturday; "Next weekend" during one), next week (Monday) and,
+ * with `nextMonth`, the 1st of next month. A date that's the same as an
+ * earlier one is left out, e.g. the weekend on a Friday, when Saturday is
+ * tomorrow.
+ */
+export function datePresets(now: Date, nextMonth: boolean): DatePreset[] {
+  let today = now.getDay();
+  let weekend = today == 6 || today == 0;
+  // The next Saturday and Monday at least a day away.
+  let toSaturday = (6 - today + 7) % 7 || 7;
+  let toMonday = (8 - today) % 7 || 7;
 
-  // Next Monday, at least one day away.
-  let nextWeek = new Date(now);
-  let daysUntilMonday = (8 - nextWeek.getDay()) % 7 || 7;
-  nextWeek.setDate(nextWeek.getDate() + daysUntilMonday);
-  nextWeek.setHours(9, 0, 0, 0);
-
-  return [
-    { label: "Later today", until: laterToday },
-    { label: "Tomorrow", until: tomorrow },
-    { label: "Next week", until: nextWeek },
+  let presets: DatePreset[] = [
+    { label: "Tomorrow", date: morning(now, 1) },
+    {
+      label: weekend ? "Next weekend" : "This weekend",
+      date: morning(now, toSaturday),
+    },
+    { label: "Next week", date: morning(now, toMonday) },
   ];
+  if (nextMonth) {
+    let first = new Date(now.getFullYear(), now.getMonth() + 1, 1, 9);
+    presets.push({ label: "Next month", date: first });
+  }
+
+  presets.sort((a, b) => a.date.getTime() - b.date.getTime());
+  return presets.filter(
+    (preset, index) =>
+      index == 0 || preset.date.getTime() != presets[index - 1].date.getTime(),
+  );
+}
+
+/** Times to snooze until. */
+export function snoozePresets(now: Date): DatePreset[] {
+  return datePresets(now, true);
+}
+
+/** Dates to set as due. */
+export function duePresets(now: Date): DatePreset[] {
+  return datePresets(now, false);
 }
 
 function pad(n: number) {

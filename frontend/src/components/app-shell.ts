@@ -161,6 +161,9 @@ export class AppShell extends LitElement {
       case "unsnooze":
         await this.store.unsnooze(item);
         break;
+      case "due":
+        await this.store.setDue(item, detail.due);
+        break;
       case "clear-due":
         await this.store.clearDue(item);
         break;
