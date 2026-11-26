@@ -197,6 +197,16 @@ describe("Store", () => {
     expect(store.state.contexts[1].hidden_kinds).toEqual([]);
   });
 
+  it("shows only one kind", async () => {
+    routes();
+    await store.start(work);
+    let calls = routes();
+    await store.toggleKind("issue");
+    await store.showOnlyKind("issue");
+    expect(store.hiddenKinds()).toEqual(["task", "patch"]);
+    expect(calls.map((c) => c.body)).toEqual([["issue"], ["task", "patch"]]);
+  });
+
   it("undoes a kind change the server rejects", async () => {
     routes();
     await store.start(work);

@@ -318,7 +318,16 @@ export class AppShell extends LitElement {
           title=${title}
           aria-pressed=${shown ? "true" : "false"}
           data-kind=${kind}
-          @click=${() => this.store.toggleKind(kind)}
+          @click=${(event: MouseEvent) =>
+            event.shiftKey
+              ? this.store.showOnlyKind(kind)
+              : this.store.toggleKind(kind)}
+          @auxclick=${(event: MouseEvent) => {
+            if (event.button == 1) {
+              event.preventDefault();
+              this.store.showOnlyKind(kind);
+            }
+          }}
         >
           <wa-icon name=${icon} label=${title}></wa-icon>
         </wa-button>`;

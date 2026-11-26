@@ -15,8 +15,8 @@ list, so you can see everything you need to do in one place.
   would, led by an issue (or else a task, then a patch), with the others
   indented beneath. Each keeps its own snooze and due date.
 - Every item is a **task**, an **issue** or a **patch** (e.g. a pull request).
-  Buttons at the top of the list show or hide each kind; each context
-  remembers its choice.
+  Buttons at the top of the list show or hide each kind (shift or middle
+  click one to show only that kind); each context remembers its choice.
 - Items can be **snoozed** until a date and time, or forever. The snoozed view
   (`/c/<context>/snoozed`) lists them and lets you unsnooze them.
 - An item's **due date can be overridden**.

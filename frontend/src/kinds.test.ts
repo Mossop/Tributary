@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ITEM_KINDS, toggleKind, visibleItems } from "./kinds.ts";
+import { ITEM_KINDS, onlyKind, toggleKind, visibleItems } from "./kinds.ts";
 import { makeItem } from "./test-helpers.ts";
 
 describe("kinds", () => {
@@ -12,6 +12,10 @@ describe("kinds", () => {
     expect(toggleKind([], "patch")).toEqual(["patch"]);
     expect(toggleKind(["patch"], "task")).toEqual(["task", "patch"]);
     expect(toggleKind(["task", "patch"], "task")).toEqual(["patch"]);
+  });
+
+  it("hides every other kind to show only one", () => {
+    expect(onlyKind("issue")).toEqual(["task", "patch"]);
   });
 
   it("filters out hidden kinds", () => {

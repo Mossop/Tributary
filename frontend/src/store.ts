@@ -9,7 +9,7 @@ import type {
   Source,
   SourceType,
 } from "./api.ts";
-import { toggleKind, visibleItems } from "./kinds.ts";
+import { onlyKind, toggleKind, visibleItems } from "./kinds.ts";
 import type { Route } from "./route.ts";
 
 /** Identifies an item across sources. */
@@ -188,7 +188,17 @@ export class Store extends EventTarget {
 
   /** Shows or hides a kind of item in the current context. The change is
    * shown straight away and saved in the background. */
-  async toggleKind(kind: ItemKind) {
+  toggleKind(kind: ItemKind) {
+    return this.setHiddenKinds(toggleKind(this.hiddenKinds(), kind));
+  }
+
+  /** Shows only one kind of item in the current context, like
+   * `toggleKind`. */
+  showOnlyKind(kind: ItemKind) {
+    return this.setHiddenKinds(onlyKind(kind));
+  }
+
+  private async setHiddenKinds(hidden: ItemKind[]) {
     let id = this.state.route.context;
     if (id == null) {
       return;
@@ -200,7 +210,6 @@ export class Store extends EventTarget {
           c.id == id ? { ...c, hidden_kinds: hidden } : c,
         ),
       });
-    let hidden = toggleKind(before, kind);
     setHidden(hidden);
     try {
       await api.setHiddenKinds(id, hidden);

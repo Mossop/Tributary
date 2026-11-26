@@ -27,3 +27,8 @@ export function toggleKind(hidden: ItemKind[], kind: ItemKind): ItemKind[] {
     k == kind ? hide : hidden.includes(k),
   );
 }
+
+/** The kinds to hide so only `kind` is shown. */
+export function onlyKind(kind: ItemKind): ItemKind[] {
+  return ITEM_KINDS.map((k) => k.kind).filter((k) => k != kind);
+}
