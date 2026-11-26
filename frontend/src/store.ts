@@ -11,6 +11,7 @@ import type {
 } from "./api.ts";
 import { onlyKind, toggleKind, visibleItems } from "./kinds.ts";
 import type { Route } from "./route.ts";
+import { frontendChanged } from "./update.ts";
 
 /** Identifies an item across sources. */
 export function itemKey(item: Item): string {
@@ -36,6 +37,8 @@ export interface State {
   loaded: boolean;
   refreshing: boolean;
   error: string | null;
+  /** A new build of the frontend is available; reloading picks it up. */
+  updateAvailable: boolean;
 }
 
 export interface EventSourceLike {
@@ -65,6 +68,7 @@ export class Store extends EventTarget {
     loaded: false,
     refreshing: false,
     error: null,
+    updateAvailable: false,
   };
 
   private connect: (url: string) => EventSourceLike;
@@ -358,10 +362,25 @@ export class Store extends EventTarget {
     }
   }
 
+  /** Checks whether the server has a new build of the frontend. */
+  async checkForUpdate() {
+    if (this.state.updateAvailable) {
+      return;
+    }
+    try {
+      if (await frontendChanged()) {
+        this.update({ updateAvailable: true });
+      }
+    } catch {
+      // The server may be restarting; check again next time.
+    }
+  }
+
   /** Periodic work while the dashboard is visible. */
   private tick() {
     api.pingActivity().catch(() => {});
     // Picks up snoozes that have expired.
     this.loadItems();
+    this.checkForUpdate();
   }
 }

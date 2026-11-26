@@ -70,7 +70,9 @@ frontend in `frontend/`. See README.md for features and configuration.
 - `api.ts` — typed API client; `store.ts` — state, SSE subscription, activity
   pings; `route.ts` — `/c/<context>[/snoozed]` and `/settings` URLs;
   `format.ts` — date helpers; `groups.ts` — groups items sharing
-  references; `settings-form.ts` — pure helpers for the
+  references; `update.ts` — spots a new frontend build by comparing the
+  page's hashed asset URLs with the server's `index.html` (checked on the
+  activity tick; never fires in dev); `settings-form.ts` — pure helpers for the
   settings forms.
 - `components/` — `app-shell` (shell), `item-row`, `date-dialog`,
   `settings-page`, `context-dialog`, `source-dialog` (form generated from the

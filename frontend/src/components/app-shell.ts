@@ -103,6 +103,13 @@ export class AppShell extends LitElement {
       margin-bottom: var(--wa-space-m);
     }
 
+    .update::part(message) {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--wa-space-s);
+    }
+
     h2 {
       font-size: var(--wa-font-size-l);
       margin: 0 0 var(--wa-space-s);
@@ -299,6 +306,23 @@ export class AppShell extends LitElement {
     </span>`;
   }
 
+  private renderUpdate() {
+    if (!this.state.updateAvailable) {
+      return nothing;
+    }
+    return html`<wa-callout variant="warning" class="update">
+      <wa-icon slot="icon" name="update"></wa-icon>
+      Tributary has been updated. Reload to use the new version.
+      <wa-button
+        size="small"
+        variant="warning"
+        @click=${() => window.location.reload()}
+      >
+        Reload
+      </wa-button>
+    </wa-callout>`;
+  }
+
   /** Source errors are shown in settings instead, flagged by the dot on the
    * settings button. */
   private renderErrors() {
@@ -413,7 +437,8 @@ export class AppShell extends LitElement {
 
   render() {
     return html`
-      ${this.renderHeader()} ${this.renderErrors()} ${this.renderBody()}
+      ${this.renderUpdate()} ${this.renderHeader()} ${this.renderErrors()}
+      ${this.renderBody()}
       <date-dialog></date-dialog>
     `;
   }

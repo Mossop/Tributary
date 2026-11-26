@@ -207,6 +207,22 @@ describe("Store", () => {
     expect(calls.map((c) => c.body)).toEqual([["issue"], ["task", "patch"]]);
   });
 
+  it("notices a new build of the frontend", async () => {
+    routes();
+    await store.start(work);
+    await store.checkForUpdate();
+    expect(store.state.updateAvailable).toBe(false);
+
+    routes({
+      "GET /": new Response(
+        '<html><head><script type="module" src="/assets/index-b.js"></script></head></html>',
+        { headers: { "content-type": "text/html" } },
+      ),
+    });
+    await store.checkForUpdate();
+    expect(store.state.updateAvailable).toBe(true);
+  });
+
   it("undoes a kind change the server rejects", async () => {
     routes();
     await store.start(work);
