@@ -32,7 +32,7 @@ list, so you can see everything you need to do in one place.
   first run there is a single "Default" context, which you can rename.
 
 Currently available source types: GitHub (issue/PR search), Google Tasks,
-Gmail (message search), Phabricator (patches to review, to work on and ready to land), Bugzilla
+Gmail (conversation search), Phabricator (patches to review, to work on and ready to land), Bugzilla
 (bugs assigned to you, or with flags requested of you) and Slack (saved
 messages or to-dos, through an MCP gateway).
 There is also a stub type with fixed items, used for tests and not offered in
@@ -183,9 +183,11 @@ needs read and write access to Google Tasks; accounts connected before it was
 added show "Needs reconnecting" until reconnected.
 
 **Gmail**: a Google account and any Gmail search (e.g. `is:unread
-in:inbox`). Shows up to 100 matching messages, newest first, as tasks. Unread
-messages have a "Mark as read" quick action and messages in the inbox an
-"Archive" one; a message that no longer matches the search after one (e.g.
+in:inbox`). Shows up to 100 matching conversations as tasks, titled by the
+first message's subject and described by the latest message. Conversations
+with an unread message have a "Mark as read" quick action and those in the
+inbox an "Archive" one, both applying to the whole conversation; a
+conversation that no longer matches the search after one (e.g.
 `is:unread` after marking it read) drops off the list. Gmail needs
 `gmail.modify` access, which Google treats as a restricted scope: while the
 OAuth app is in testing it works for its test users after an "unverified app"

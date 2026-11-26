@@ -647,37 +647,47 @@ async fn task_fetches(google: &MockServer) -> usize {
         .count()
 }
 
-/// Mocks a Gmail search for `is:unread` finding an unread message in the
-/// inbox (`m1`) and a read, archived one (`m2`).
+/// Mocks a Gmail search for `is:unread` finding a conversation of two
+/// messages, one unread in the inbox (`t1`), and a read, archived one
+/// (`t2`).
 async fn mock_gmail(google: &MockServer) {
     Mock::given(method("GET"))
-        .and(path("/gmail/v1/users/me/messages"))
+        .and(path("/gmail/v1/users/me/threads"))
         .and(header("authorization", "Bearer access-token"))
         .and(query_param("q", "is:unread"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "messages": [{ "id": "m1", "threadId": "t1" }, { "id": "m2", "threadId": "t2" }],
+            "threads": [{ "id": "t1" }, { "id": "t2" }],
             "resultSizeEstimate": 2,
         })))
         .mount(google)
         .await;
-    for (id, labels, subject) in [
-        ("m1", json!(["INBOX", "UNREAD"]), "Please review"),
-        ("m2", json!([]), "Old news"),
+    let message = |labels: Value, subject: &str| {
+        json!({
+            "labelIds": labels,
+            "snippet": "Hello",
+            "internalDate": "1795694773000",
+            "payload": { "headers": [
+                { "name": "Subject", "value": subject },
+                { "name": "From", "value": "Alice <alice@example.com>" },
+            ]},
+        })
+    };
+    for (id, messages) in [
+        (
+            "t1",
+            json!([
+                message(json!(["INBOX"]), "Please review"),
+                message(json!(["INBOX", "UNREAD"]), "Re: Please review"),
+            ]),
+        ),
+        ("t2", json!([message(json!([]), "Old news")])),
     ] {
         Mock::given(method("GET"))
-            .and(path(format!("/gmail/v1/users/me/messages/{id}")))
+            .and(path(format!("/gmail/v1/users/me/threads/{id}")))
             .and(query_param("format", "metadata"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "id": id,
-                "threadId": format!("t{}", &id[1..]),
-                "labelIds": labels,
-                "snippet": "Hello",
-                "internalDate": "1795694773000",
-                "payload": { "headers": [
-                    { "name": "Subject", "value": subject },
-                    { "name": "From", "value": "Alice <alice@example.com>" },
-                ]},
-            })))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(json!({ "id": id, "messages": messages })),
+            )
             .mount(google)
             .await;
     }
@@ -701,7 +711,7 @@ async fn add_gmail_source(app: &TestApp, account: &str) -> Value {
 }
 
 #[tokio::test]
-async fn lists_gmail_messages_with_actions() {
+async fn lists_gmail_conversations_with_actions() {
     let google = MockServer::start().await;
     let app = google_app(&google).await;
     let id = connect(&app, &google).await;
@@ -733,13 +743,13 @@ async fn lists_gmail_messages_with_actions() {
         items,
         [
             (
-                "m1",
+                "t1",
                 "Please review",
                 "https://mail.google.com/mail/?authuser=me%40example.com#all/t1",
                 vec!["mark-read", "archive"]
             ),
             (
-                "m2",
+                "t2",
                 "Old news",
                 "https://mail.google.com/mail/?authuser=me%40example.com#all/t2",
                 vec![]
@@ -749,7 +759,7 @@ async fn lists_gmail_messages_with_actions() {
 }
 
 #[tokio::test]
-async fn marks_messages_read_and_archives_them() {
+async fn marks_conversations_read_and_archives_them() {
     let google = MockServer::start().await;
     let app = google_app(&google).await;
     let id = connect(&app, &google).await;
@@ -757,10 +767,10 @@ async fn marks_messages_read_and_archives_them() {
     mock_gmail(&google).await;
     for label in ["UNREAD", "INBOX"] {
         Mock::given(method("POST"))
-            .and(path("/gmail/v1/users/me/messages/m1/modify"))
+            .and(path("/gmail/v1/users/me/threads/t1/modify"))
             .and(header("authorization", "Bearer access-token"))
             .and(body_json(json!({ "removeLabelIds": [label] })))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "m1" })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "t1" })))
             .expect(1)
             .mount(&google)
             .await;
@@ -773,7 +783,7 @@ async fn marks_messages_read_and_archives_them() {
         let (status, body) = app
             .request(
                 Method::POST,
-                &format!("/api/items/{source}/m1/actions/{action}"),
+                &format!("/api/items/{source}/t1/actions/{action}"),
                 None,
             )
             .await;

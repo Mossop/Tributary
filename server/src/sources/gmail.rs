@@ -1,5 +1,5 @@
-//! Lists Gmail messages matching a search, with quick actions to mark them
-//! read and to archive them.
+//! Lists Gmail conversations matching a search, with quick actions to mark
+//! them read and to archive them.
 
 use std::sync::Arc;
 
@@ -24,8 +24,8 @@ const MARK_READ: &str = "mark-read";
 const ARCHIVE: &str = "archive";
 const UNREAD: &str = "UNREAD";
 const INBOX: &str = "INBOX";
-/// The most messages a source lists.
-const MAX_MESSAGES: &str = "100";
+/// The most conversations a source lists.
+const MAX_THREADS: &str = "100";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct GmailConfig {
@@ -53,7 +53,7 @@ pub fn source_type() -> SourceType {
                 kind: FieldKind::Text,
                 required: true,
                 placeholder: Some("is:unread in:inbox"),
-                help: Some("Any Gmail search. Shows up to 100 messages, newest first."),
+                help: Some("Any Gmail search. Shows up to 100 conversations, most recent first."),
                 provider: None,
             },
         ],
@@ -67,21 +67,27 @@ pub fn source_type() -> SourceType {
 }
 
 #[derive(Deserialize)]
-struct MessageList {
+struct ThreadList {
     #[serde(default)]
-    messages: Vec<MessageRef>,
+    threads: Vec<ThreadRef>,
 }
 
 #[derive(Deserialize)]
-struct MessageRef {
+struct ThreadRef {
     id: String,
+}
+
+/// A conversation, with its messages oldest first.
+#[derive(Deserialize)]
+struct Thread {
+    id: String,
+    #[serde(default)]
+    messages: Vec<Message>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Message {
-    id: String,
-    thread_id: String,
     #[serde(default)]
     label_ids: Vec<String>,
     #[serde(default)]
@@ -113,28 +119,40 @@ impl Message {
             .map(|h| h.value.as_str())
     }
 
-    /// The item for a message in `email`'s mailbox.
-    fn into_item(self, email: &str) -> SourceItem {
-        let subject = self
+    fn time(&self) -> DateTime<chrono::Utc> {
+        self.internal_date
+            .parse()
+            .ok()
+            .and_then(DateTime::from_timestamp_millis)
+            .unwrap_or_default()
+    }
+
+    fn has_label(&self, label: &str) -> bool {
+        self.label_ids.iter().any(|l| l == label)
+    }
+}
+
+impl Thread {
+    /// The item for a conversation in `email`'s mailbox, or `None` if it
+    /// has no messages.
+    fn into_item(self, email: &str) -> Option<SourceItem> {
+        let first = self.messages.first()?;
+        let last = self.messages.last()?;
+        let subject = first
             .header("Subject")
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .unwrap_or("(No subject)")
             .to_string();
-        let snippet = decode_entities(&self.snippet);
-        let description = match self.header("From").map(sender) {
+        let snippet = decode_entities(&last.snippet);
+        let description = match last.header("From").map(sender) {
             Some(from) if snippet.is_empty() => from,
             Some(from) => format!("{from} · {snippet}"),
             None => snippet.clone(),
         };
-        let time = self
-            .internal_date
-            .parse()
-            .ok()
-            .and_then(DateTime::from_timestamp_millis)
-            .unwrap_or_default();
+        let any = |label| self.messages.iter().any(|m| m.has_label(label));
         let mut actions = Vec::new();
-        if self.label_ids.iter().any(|l| l == UNREAD) {
+        if any(UNREAD) {
             actions.push(QuickAction {
                 id: MARK_READ.to_string(),
                 label: "Mark as read".to_string(),
@@ -142,7 +160,7 @@ impl Message {
                 url: None,
             });
         }
-        if self.label_ids.iter().any(|l| l == INBOX) {
+        if any(INBOX) {
             actions.push(QuickAction {
                 id: ARCHIVE.to_string(),
                 label: "Archive".to_string(),
@@ -151,24 +169,26 @@ impl Message {
             });
         }
         let refs = references::in_text(&format!("{subject}\n{snippet}"));
-        SourceItem {
+        let created = first.time();
+        let modified = last.time();
+        Some(SourceItem {
             url: format!(
                 "https://mail.google.com/mail/?authuser={}#all/{}",
                 query_value(email),
-                self.thread_id
+                self.id
             ),
             id: self.id,
             kind: ItemKind::Task,
             title: subject,
             icon: None,
-            modified: time,
-            created: Some(time),
+            modified,
+            created: Some(created),
             description: (!description.is_empty()).then_some(description),
             due: None,
             actions,
             due_from: None,
             references: refs,
-        }
+        })
     }
 }
 
@@ -259,19 +279,19 @@ impl GmailSource {
         let account = accounts::get_account(self.accounts.pool(), &self.account)
             .await?
             .ok_or_else(|| anyhow!("unknown account `{}`", self.account))?;
-        let list: MessageList = self
+        let list: ThreadList = self
             .get(
                 &token,
-                "/messages",
-                &[("q", self.query.as_str()), ("maxResults", MAX_MESSAGES)],
+                "/threads",
+                &[("q", self.query.as_str()), ("maxResults", MAX_THREADS)],
             )
             .await?;
         let token = &token;
-        let messages: Vec<Message> = stream::iter(list.messages)
-            .map(|message| async move {
+        let threads: Vec<Thread> = stream::iter(list.threads)
+            .map(|thread| async move {
                 self.get(
                     token,
-                    &format!("/messages/{}", message.id),
+                    &format!("/threads/{}", thread.id),
                     &[
                         ("format", "metadata"),
                         ("metadataHeaders", "Subject"),
@@ -283,9 +303,9 @@ impl GmailSource {
             .buffered(ITEM_REQUESTS)
             .try_collect()
             .await?;
-        Ok(messages
+        Ok(threads
             .into_iter()
-            .map(|m| m.into_item(&account.name))
+            .filter_map(|t| t.into_item(&account.name))
             .collect())
     }
 
@@ -299,7 +319,7 @@ impl GmailSource {
         let response = self
             .http
             .post(format!(
-                "{}/users/me/messages/{item_id}/modify",
+                "{}/users/me/threads/{item_id}/modify",
                 self.api_url
             ))
             .bearer_auth(&token)
@@ -345,48 +365,83 @@ impl Source for GmailSource {
 mod tests {
     use super::*;
 
-    fn message(labels: &[&str]) -> Message {
-        serde_json::from_value(json!({
-            "id": "m1",
-            "threadId": "t1",
+    fn message(labels: &[&str], date: &str, subject: &str, from: &str, snippet: &str) -> Value {
+        json!({
             "labelIds": labels,
-            "snippet": "Can you look at bug 1234? It&#39;s urgent &amp; important",
-            "internalDate": "1795694773000",
+            "snippet": snippet,
+            "internalDate": date,
             "payload": { "headers": [
-                { "name": "Subject", "value": "Help with https://bugzilla.mozilla.org/show_bug.cgi?id=42" },
-                { "name": "From", "value": "\"Alice Example\" <alice@example.com>" },
+                { "name": "Subject", "value": subject },
+                { "name": "From", "value": from },
             ]},
-        }))
-        .unwrap()
+        })
+    }
+
+    fn thread(messages: Vec<Value>) -> Thread {
+        serde_json::from_value(json!({ "id": "t1", "messages": messages })).unwrap()
+    }
+
+    /// A thread of a single message.
+    fn single(labels: &[&str]) -> Thread {
+        thread(vec![message(
+            labels,
+            "1795694773000",
+            "Help",
+            "Alice <alice@example.com>",
+            "Hi",
+        )])
     }
 
     #[test]
-    fn maps_messages() {
-        let item = message(&["INBOX", "UNREAD"]).into_item("me+work@example.com");
-        assert_eq!(item.id, "m1");
+    fn maps_conversations() {
+        let item = thread(vec![
+            message(
+                &["UNREAD"],
+                "1795694773000",
+                "Help with https://bugzilla.mozilla.org/show_bug.cgi?id=42",
+                "\"Alice Example\" <alice@example.com>",
+                "Can you look?",
+            ),
+            message(
+                &["INBOX"],
+                "1795698373000",
+                "Re: Help with https://bugzilla.mozilla.org/show_bug.cgi?id=42",
+                "Bob <bob@example.com>",
+                "It&#39;s urgent &amp; important",
+            ),
+        ])
+        .into_item("me+work@example.com")
+        .unwrap();
+        assert_eq!(item.id, "t1");
         assert_eq!(item.kind, ItemKind::Task);
+        // The first message's subject, and the latest message's sender and
+        // snippet.
         assert_eq!(
             item.title,
             "Help with https://bugzilla.mozilla.org/show_bug.cgi?id=42"
         );
         assert_eq!(
             item.description.as_deref(),
-            Some("Alice Example · Can you look at bug 1234? It's urgent & important")
+            Some("Bob · It's urgent & important")
         );
         assert_eq!(
             item.url,
             "https://mail.google.com/mail/?authuser=me%2Bwork%40example.com#all/t1"
         );
-        assert_eq!(item.modified.timestamp(), 1_795_694_773);
-        assert_eq!(item.created, Some(item.modified));
+        assert_eq!(item.created.unwrap().timestamp(), 1_795_694_773);
+        assert_eq!(item.modified.timestamp(), 1_795_698_373);
         assert_eq!(item.references, ["bugzilla:42"]);
+        // Labels on any message count.
+        let actions: Vec<_> = item.actions.into_iter().map(|a| a.id).collect();
+        assert_eq!(actions, ["mark-read", "archive"]);
     }
 
     #[test]
     fn offers_actions_by_label() {
         let ids = |labels: &[&str]| -> Vec<String> {
-            message(labels)
+            single(labels)
                 .into_item("me@example.com")
+                .unwrap()
                 .actions
                 .into_iter()
                 .map(|a| a.id)
@@ -399,6 +454,11 @@ mod tests {
     }
 
     #[test]
+    fn skips_empty_conversations() {
+        assert!(thread(vec![]).into_item("me@example.com").is_none());
+    }
+
+    #[test]
     fn reads_senders() {
         assert_eq!(sender("\"Alice\" <alice@example.com>"), "Alice");
         assert_eq!(sender("Bob Smith <bob@example.com>"), "Bob Smith");
@@ -407,9 +467,15 @@ mod tests {
     }
 
     #[test]
-    fn titles_messages_without_subjects() {
-        let mut message = message(&[]);
-        message.payload.headers.retain(|h| h.name != "Subject");
-        assert_eq!(message.into_item("me@example.com").title, "(No subject)");
+    fn titles_conversations_without_subjects() {
+        let mut thread = single(&[]);
+        thread.messages[0]
+            .payload
+            .headers
+            .retain(|h| h.name != "Subject");
+        assert_eq!(
+            thread.into_item("me@example.com").unwrap().title,
+            "(No subject)"
+        );
     }
 }
