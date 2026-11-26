@@ -244,21 +244,22 @@ async fn lists_bugs_with_a_flag_requested_of_me() {
     assert_eq!(last_error(&app).await, Value::Null);
     assert_eq!(
         items(&app).await,
+        // Most recently asked first.
         [
-            (
-                "1".to_string(),
-                json!("Bug 1 · needinfo? from alice@example.com")
-            ),
             (
                 "3".to_string(),
                 json!("Bug 3 · needinfo? from carol@example.com (attachment)")
+            ),
+            (
+                "1".to_string(),
+                json!("Bug 1 · needinfo? from alice@example.com")
             ),
         ]
     );
     // When I was asked, not when the bug last changed.
     let items = app.get("/api/contexts/default/items").await;
-    assert_eq!(items[0]["modified"], "2026-02-03T00:00:00Z");
-    assert_eq!(items[1]["modified"], "2026-02-05T00:00:00Z");
+    assert_eq!(items[0]["modified"], "2026-02-05T00:00:00Z");
+    assert_eq!(items[1]["modified"], "2026-02-03T00:00:00Z");
 }
 
 #[tokio::test]

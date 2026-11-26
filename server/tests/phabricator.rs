@@ -328,21 +328,27 @@ async fn lists_patches_waiting_for_my_review() {
     assert_eq!(
         items(&app).await,
         [
-            ("D1".to_string(), json!("D1 · by alice")),
-            (
-                "D3".to_string(),
-                json!("D3 · by alice · for #group-reviewers")
-            ),
+            ("D7".to_string(), json!("D7 · by alice")),
             (
                 "D5".to_string(),
                 json!("D5 · by alice · for #group-reviewers")
             ),
-            ("D7".to_string(), json!("D7 · by alice")),
+            (
+                "D3".to_string(),
+                json!("D3 · by alice · for #group-reviewers")
+            ),
+            ("D1".to_string(), json!("D1 · by alice")),
         ]
     );
     // Without a default due date, histories aren't fetched.
     assert_eq!(history_calls(&conduit).await, 0);
-    let item = &app.get("/api/contexts/default/items").await[0];
+    let items = app.get("/api/contexts/default/items").await;
+    let item = items
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == "D1")
+        .unwrap();
     assert_eq!(item["kind"], "patch");
     assert_eq!(item["title"], "Bug 1 - Change 1");
     assert_eq!(item["url"], "https://phab.test/D1");
@@ -386,8 +392,8 @@ async fn lists_my_patches_to_work_on_across_pages() {
     assert_eq!(
         items(&app).await,
         [
-            ("D8".to_string(), json!("D8 · Needs Revision")),
             ("D9".to_string(), json!("D9 · Draft")),
+            ("D8".to_string(), json!("D8 · Needs Revision")),
         ]
     );
 }

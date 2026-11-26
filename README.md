@@ -7,8 +7,9 @@ list, so you can see everything you need to do in one place.
 - **Contexts** are separate views (e.g. work and personal), each at its own URL
   (`/c/<context>`). Each source is shown in one or more contexts. A switcher in
   the header moves between them.
-- Items are sorted with those that have a due date first (soonest first),
-  followed by the rest, least recently modified first.
+- Items are sorted with overdue ones first (longest overdue first), then
+  those due later (soonest first), followed by the rest, most recently
+  modified first.
 - **Related items are grouped.** A bug, the patch fixing it and a task linking
   to either are shown together: the group sits where its highest member
   would, led by an issue (or else a task, then a patch), with the others

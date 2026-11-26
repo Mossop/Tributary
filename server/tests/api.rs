@@ -56,7 +56,8 @@ async fn items_are_filtered_by_context_and_sorted() {
 
     assert_eq!(
         app.ids("/api/contexts/work/items").await,
-        ["b/4", "a/2", "b/3", "a/1"]
+        // Due first, soonest first, then most recently modified first.
+        ["b/4", "a/2", "a/1", "b/3"]
     );
     assert_eq!(app.ids("/api/contexts/home/items").await, ["b/4", "b/3"]);
     assert!(app.ids("/api/contexts/default/items").await.is_empty());
@@ -354,7 +355,7 @@ async fn serves_no_frontend_without_a_static_dir() {
 async fn performs_quick_actions_and_refreshes() {
     let app = setup().await;
     app.source("a")
-        .set_items(vec![item_with_action("1", 1), item("2", 2, None)]);
+        .set_items(vec![item_with_action("1", 2), item("2", 1, None)]);
     app.refresh("work").await;
 
     let items = app.get("/api/contexts/work/items").await;

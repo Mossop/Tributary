@@ -193,8 +193,8 @@ async fn searches_and_maps_items() {
     assert_eq!(timelines, 0);
 
     let items = app.get("/api/contexts/default/items").await;
-    // Oldest first.
-    let (issue, pr) = (&items[0], &items[1]);
+    // Most recently updated first.
+    let (pr, issue) = (&items[0], &items[1]);
     assert_eq!(pr["id"], "owner/repo#12");
     assert_eq!(pr["kind"], "patch");
     assert_eq!(pr["title"], "Fix the thing");

@@ -119,7 +119,8 @@ pub enum Filter {
 /// Lists items from the given sources.
 ///
 /// Items with a due date (the override if set, otherwise the source's) come
-/// first, soonest first, followed by items without a due date, least recently
+/// first, earliest first: overdue ones, longest overdue first, then upcoming
+/// ones, soonest first. Then come items without a due date, most recently
 /// modified first.
 pub async fn list_items(
     pool: &SqlitePool,
@@ -139,7 +140,7 @@ pub async fn list_items(
           AND (COALESCE(s.snoozed_forever, 0) = 1 OR COALESCE(s.snoozed_until, 0) > ?2) = ?3
         ORDER BY COALESCE(s.due_override, i.due) IS NULL,
                  COALESCE(s.due_override, i.due),
-                 i.modified,
+                 i.modified DESC,
                  i.source_id,
                  i.item_id
         "#,
@@ -398,9 +399,9 @@ mod tests {
         };
         let with_action = SourceItem {
             actions: vec![action.clone()],
-            ..item("1", 1, None)
+            ..item("1", 2, None)
         };
-        replace_items(&pool, "a", &[with_action, item("2", 2, None)], time(1))
+        replace_items(&pool, "a", &[with_action, item("2", 1, None)], time(1))
             .await
             .unwrap();
 
@@ -418,7 +419,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sorts_due_first_then_oldest_modified() {
+    async fn sorts_by_due_date_then_newest_modified() {
         let pool = connect_in_memory().await.unwrap();
         replace_items(
             &pool,
@@ -427,18 +428,36 @@ mod tests {
                 item("new", 20, None),
                 item("old", 2, None),
                 item("due-late", 25, Some(28)),
+                item("overdue", 3, Some(12)),
             ],
             time(1),
         )
         .await
         .unwrap();
-        replace_items(&pool, "b", &[item("due-soon", 1, Some(10))], time(1))
-            .await
-            .unwrap();
+        replace_items(
+            &pool,
+            "b",
+            &[
+                item("due-soon", 1, Some(18)),
+                item("long-overdue", 9, Some(5)),
+            ],
+            time(1),
+        )
+        .await
+        .unwrap();
 
+        // On the 15th: overdue items, longest overdue first, then upcoming
+        // ones, soonest first, then the rest, most recently modified first.
         assert_eq!(
-            ids(&pool, &["a", "b"], Filter::Active, 1).await,
-            ["b/due-soon", "a/due-late", "a/old", "a/new"]
+            ids(&pool, &["a", "b"], Filter::Active, 15).await,
+            [
+                "b/long-overdue",
+                "a/overdue",
+                "b/due-soon",
+                "a/due-late",
+                "a/new",
+                "a/old"
+            ]
         );
     }
 

@@ -211,16 +211,16 @@ async fn lists_to_dos_across_pages() {
         items,
         [
             (
-                "C1/1795694701.000100",
-                "Review the bug",
-                "#general · from Bob",
-                "https://example.slack.com/archives/C1/p1795694701000100"
-            ),
-            (
                 "C2/1795694702.000100",
                 "Ping @Carol",
                 "DM · from Bob",
                 "https://example.slack.com/archives/C2/p1795694702000100"
+            ),
+            (
+                "C1/1795694701.000100",
+                "Review the bug",
+                "#general · from Bob",
+                "https://example.slack.com/archives/C1/p1795694701000100"
             ),
         ]
     );

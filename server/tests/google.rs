@@ -433,8 +433,8 @@ async fn fetches_tasks_from_all_lists() {
         item_titles(&app).await,
         [
             ("First".to_string(), json!("My Tasks · Some notes")),
-            ("Second".to_string(), json!("My Tasks")),
             ("Milk".to_string(), json!("Shopping")),
+            ("Second".to_string(), json!("My Tasks")),
         ]
     );
 }
@@ -569,7 +569,7 @@ async fn ids_include_the_list() {
 
     add_tasks_source(&app, &id, "*").await;
     app.refresh("default").await;
-    assert_eq!(item_ids(&app).await, ["inbox/t1", "inbox/t2", "shop/t3"]);
+    assert_eq!(item_ids(&app).await, ["inbox/t1", "shop/t3", "inbox/t2"]);
 }
 
 #[tokio::test]
