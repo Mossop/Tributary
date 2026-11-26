@@ -31,8 +31,9 @@ list, so you can see everything you need to do in one place.
   first run there is a single "Default" context, which you can rename.
 
 Currently available source types: GitHub (issue/PR search), Google Tasks,
-Phabricator (patches to review, to work on and ready to land) and Bugzilla
-(bugs assigned to you, or with flags requested of you).
+Phabricator (patches to review, to work on and ready to land), Bugzilla
+(bugs assigned to you, or with flags requested of you) and Slack (saved
+messages or to-dos, through an MCP gateway).
 There is also a stub type with fixed items, used for tests and not offered in
 settings.
 
@@ -132,6 +133,16 @@ generate one. The account is named after your Bugzilla login. It defaults to
 Mozilla's Bugzilla; give its URL (e.g. `https://bugzilla.example.com`) for
 another instance.
 
+### Slack accounts
+
+Slack sources reach Slack through an MCP gateway offering Slack's MCP tools,
+such as Runlayer, rather than a Slack app, since workspaces may not allow
+adding one. Add the account in settings ("Add account" → Slack) with a
+personal access token for the gateway and its Slack MCP server URL as the API
+URL. The account is named after your Slack handle. The gateway's tools are
+meant for agents, so check that polling them is allowed. If the gateway stops
+accepting the token, the account is marked as needing reconnecting.
+
 ### Google accounts
 
 Google sources use a Google account connected on the settings page. One
@@ -192,6 +203,12 @@ added show "Needs reconnecting" until reconnected.
   including closed bugs. Each item says who asked and is dated by when you
   were asked. The flags offered are needinfo plus any requested of you
   recently. **Requests: any flag** lists every request of you.
+
+**Slack**: a Slack account and what to show: **Saved messages** or
+**To-dos**, from every channel and DM you can see, newest first (up to 100).
+Each item is the message's first line, links to it in Slack, and is dated by
+when it was sent. The gateway's search results are text written for agents,
+which Tributary parses; messages it can't parse are skipped and logged.
 
 **Default due dates**: any source can give items without a due date one, a
 number of days (optionally business days, Monday to Friday in UTC) after

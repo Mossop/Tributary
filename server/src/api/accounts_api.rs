@@ -11,14 +11,16 @@ use tracing::warn;
 
 use super::{ApiError, ApiResult, AppState};
 use crate::Workspace;
-use crate::accounts::{self, BUGZILLA, GITHUB, GOOGLE, PHABRICATOR};
+use crate::accounts::{self, BUGZILLA, GITHUB, GOOGLE, PHABRICATOR, SLACK};
 use crate::events::Event;
 use crate::google::IDENTITY_SCOPES;
+use crate::mcp::McpError;
 use crate::settings::{self, SourceRecord};
 use crate::sources::FieldKind;
 use crate::sources::bugzilla;
 use crate::sources::github;
 use crate::sources::phabricator::{self, conduit};
+use crate::sources::slack;
 
 /// How accounts with a provider are connected.
 #[derive(Serialize)]
@@ -89,6 +91,17 @@ pub async fn list_providers(State(ws): State<AppState>) -> Json<Vec<ProviderInfo
             configured: true,
             token_hint: Some("An API key, from Preferences → API Keys in Bugzilla."),
             api_url_placeholder: Some(bugzilla::client::DEFAULT_URL),
+        },
+        ProviderInfo {
+            id: SLACK,
+            name: "Slack",
+            icon: slack::ICON,
+            connect: Connect::Token,
+            configured: true,
+            token_hint: Some(
+                "A personal access token for an MCP gateway offering Slack's MCP tools, such as Runlayer. The API URL is the gateway's Slack MCP server URL.",
+            ),
+            api_url_placeholder: None,
         },
     ])
 }
@@ -306,6 +319,42 @@ pub async fn add_bugzilla(
             secret: key,
             scopes: "",
             api_url: (base_url != bugzilla::client::DEFAULT_URL).then_some(base_url.as_str()),
+        },
+    )
+    .await
+}
+
+/// Adds a Slack account from an MCP gateway's URL and personal access token,
+/// or updates the token of an account that was already added.
+pub async fn add_slack(
+    State(ws): State<AppState>,
+    Json(body): Json<TokenAccountBody>,
+) -> ApiResult<(StatusCode, Json<AccountInfo>)> {
+    let token = body.token()?;
+    let url = body.api_url.as_deref().map(str::trim).unwrap_or_default();
+    if url.is_empty() {
+        return Err(ApiError::BadRequest(
+            "The MCP server URL is required".to_string(),
+        ));
+    }
+    let user = slack::current_user(url, token)
+        .await
+        .map_err(|error| match error {
+            McpError::Rejected => {
+                ApiError::BadRequest("The MCP server didn't accept the token".to_string())
+            }
+            error => ApiError::Upstream(format!("Couldn't check the token: {error}")),
+        })?;
+
+    save_token_account(
+        &ws,
+        accounts::NewAccount {
+            provider: SLACK,
+            subject: &format!("{url}#{user}"),
+            name: &user,
+            secret: token,
+            scopes: "",
+            api_url: Some(url),
         },
     )
     .await

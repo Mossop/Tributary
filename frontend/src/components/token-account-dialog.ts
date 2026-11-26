@@ -110,6 +110,7 @@ export class TokenAccountDialog extends LitElement {
             }
             type="url"
             placeholder=${placeholder}
+            ?required=${!placeholder}
             ?disabled=${this.account != null}
             .value=${this.apiUrl}
             @input=${(e: Event) =>

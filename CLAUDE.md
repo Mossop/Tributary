@@ -23,7 +23,9 @@ frontend in `frontend/`. See README.md for features and configuration.
   fn, secret handling, OAuth scopes, select options fn) and `Registry`.
   `sources/github.rs`, `sources/google_tasks.rs`, `sources/phabricator/`
   (`conduit.rs` is the Conduit client; the review rules are in
-  `review_reason`), `sources/bugzilla/` (`client.rs` is the REST client)
+  `review_reason`), `sources/bugzilla/` (`client.rs` is the REST client),
+  `sources/slack/` (Slack's MCP tools through a gateway such as Runlayer;
+  `results.rs` parses the search tool's LLM-oriented text output)
   and `sources/stub.rs` are implementations; stub is unlisted (tests/dev
   only). `sources/references.rs` builds and finds item references, which
   group related items.
@@ -33,6 +35,9 @@ frontend in `frontend/`. See README.md for features and configuration.
   pending OAuth states. Sources get it through `SourceContext`. Google
   accounts connect by OAuth; GitHub accounts are added with a token
   (`POST /api/accounts/github`), deliberately not OAuth (see README).
+- `mcp.rs` — minimal MCP client (Streamable HTTP, bearer token: initialize,
+  list and call tools; JSON or SSE responses). `find_tool` matches tools by
+  name, allowing gateway suffixes like `__abc123`.
 - `google.rs` — Google OAuth client (consent URL, code exchange, refresh,
   userinfo). Endpoints are configurable so tests use wiremock.
 - `db.rs` — items, item state and source status (sqlx runtime queries; sqlx

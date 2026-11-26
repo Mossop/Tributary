@@ -49,6 +49,7 @@ pub fn router(workspace: AppState) -> Router {
         .route("/accounts/github", post(accounts_api::add_github))
         .route("/accounts/phabricator", post(accounts_api::add_phabricator))
         .route("/accounts/bugzilla", post(accounts_api::add_bugzilla))
+        .route("/accounts/slack", post(accounts_api::add_slack))
         .route(
             "/accounts/google/connect",
             get(accounts_api::connect_google),

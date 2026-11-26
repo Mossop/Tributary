@@ -35,6 +35,7 @@ pub mod github;
 pub mod google_tasks;
 pub mod phabricator;
 pub mod references;
+pub mod slack;
 pub mod stub;
 
 /// What kind of thing an item is. Every item is one of these, so the
@@ -394,6 +395,7 @@ impl Registry {
         registry.register(google_tasks::source_type());
         registry.register(phabricator::source_type());
         registry.register(bugzilla::source_type());
+        registry.register(slack::source_type());
         registry.register(stub::source_type());
         registry
     }

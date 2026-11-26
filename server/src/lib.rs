@@ -25,6 +25,7 @@ pub mod db;
 pub mod due;
 pub mod events;
 pub mod google;
+pub mod mcp;
 pub mod scheduler;
 pub mod settings;
 pub mod sources;

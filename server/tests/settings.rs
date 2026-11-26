@@ -231,7 +231,14 @@ async fn lists_offered_source_types() {
     // The stub type is not offered; the test type is registered by the tests.
     assert_eq!(
         ids,
-        ["github", "google-tasks", "phabricator", "bugzilla", "test"]
+        [
+            "github",
+            "google-tasks",
+            "phabricator",
+            "bugzilla",
+            "slack",
+            "test"
+        ]
     );
     assert_eq!(types[0]["name"], "GitHub search");
     assert_eq!(
