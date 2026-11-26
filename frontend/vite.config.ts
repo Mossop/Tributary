@@ -16,8 +16,12 @@ export default defineConfig({
     },
   ],
   server: {
+    // The dashboard's public URL in development too, so OAuth redirects
+    // work the same. The API server (`mise run dev:server`) is on 8081.
+    port: 8080,
+    strictPort: true,
     proxy: {
-      "/api": "http://localhost:8080",
+      "/api": "http://127.0.0.1:8081",
     },
   },
   test: {

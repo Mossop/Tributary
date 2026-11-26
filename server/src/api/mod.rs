@@ -20,9 +20,7 @@ mod settings_api;
 type AppState = Arc<Workspace>;
 
 pub fn router(workspace: AppState) -> Router {
-    let static_dir = &workspace.config.server.static_dir;
-    let static_files =
-        ServeDir::new(static_dir).fallback(ServeFile::new(static_dir.join("index.html")));
+    let static_dir = workspace.config.server.static_dir.clone();
 
     let api = Router::new()
         .route(
@@ -81,9 +79,17 @@ pub fn router(workspace: AppState) -> Router {
         .route("/events", get(items::events))
         .fallback(|| async { ApiError::NotFound("not found".to_string()) });
 
-    Router::new()
-        .nest("/api", api)
-        .fallback_service(static_files)
+    let router = Router::new().nest("/api", api);
+    // An empty `static_dir` serves no frontend, e.g. in development, where
+    // Vite serves it.
+    let router = if static_dir.as_os_str().is_empty() {
+        router
+    } else {
+        let static_files =
+            ServeDir::new(&static_dir).fallback(ServeFile::new(static_dir.join("index.html")));
+        router.fallback_service(static_files)
+    };
+    router
         .layer(TraceLayer::new_for_http())
         .with_state(workspace)
 }

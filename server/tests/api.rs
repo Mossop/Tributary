@@ -341,6 +341,16 @@ async fn serves_frontend_with_fallback() {
 }
 
 #[tokio::test]
+async fn serves_no_frontend_without_a_static_dir() {
+    let config = "[server]\nstatic_dir = \"\"\n";
+    let app = start_with(config, tributary::db::connect_in_memory().await.unwrap()).await;
+    let (status, _) = app.request(Method::GET, "/c/work", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = app.request(Method::GET, "/api/contexts", None).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn performs_quick_actions_and_refreshes() {
     let app = setup().await;
     app.source("a")

@@ -25,8 +25,10 @@ description = "Build frontend and server"
 depends = ["build:frontend", "build:server"]
 
 [tasks."dev:server"]
-description = "Run the server against tributary.toml"
+description = "Run the API server against tributary.toml on :8081, for the Vite dev server"
 run = "cargo run --manifest-path server/Cargo.toml"
+# Vite serves the frontend on :8080 (the public URL) and proxies /api here.
+env = { TRIBUTARY_SERVER__LISTEN = "127.0.0.1:8081", TRIBUTARY_SERVER__STATIC_DIR = "" }
 # For `mise watch`. Migrations are embedded in the binary. `outputs = []`
 # stops `mise run` skipping the task when its sources are unchanged.
 sources = [
@@ -39,7 +41,7 @@ sources = [
 outputs = []
 
 [tasks."dev:frontend"]
-description = "Run the Vite dev server (proxies /api to :8080)"
+description = "Run the Vite dev server on :8080 (proxies /api to :8081)"
 depends = ["install"]
 dir = "frontend"
 run = "npm run dev"

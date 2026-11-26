@@ -59,16 +59,20 @@ config file.
 ```sh
 mise install
 mise run dev            # both of the below, restarted when their sources change
-mise run dev:server     # API and built frontend on :8080
-mise run dev:frontend   # Vite dev server on :5173, proxies /api to :8080
+mise run dev:server     # API only, on :8081
+mise run dev:frontend   # Vite dev server on :8080, proxies /api to :8081
 ```
+
+Open `http://localhost:8080`, the same address as in production, so the
+default `public_url` and OAuth redirect work unchanged. In development Vite
+serves the frontend and `dev:server` serves only the API (it sets
+`listen` and an empty `static_dir` through environment variables, which
+override `tributary.toml`).
 
 `mise run dev` restarts the server when its code, migrations or
 `tributary.toml` change, and Vite when its configuration or dependencies
 change (Vite reloads the app itself). Use `mise watch dev:server` or
-`mise watch dev:frontend` to watch just one. `dev:server` serves
-`frontend/dist`, so run `mise run build:frontend` first if you want the built
-frontend instead of the Vite dev server.
+`mise watch dev:frontend` to watch just one.
 
 ## Configuration
 
@@ -82,7 +86,7 @@ prefixed `TRIBUTARY_`, with `__` between nested keys, e.g.
 [server]                        # all optional
 listen = "0.0.0.0:8080"
 database = "data/tributary.sqlite"
-static_dir = "frontend/dist"
+static_dir = "frontend/dist"        # empty to serve only the API
 public_url = "http://localhost:8080"  # where the dashboard is reached
 
 [polling]                       # all optional; applies to every source

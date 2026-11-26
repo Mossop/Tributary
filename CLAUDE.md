@@ -52,7 +52,9 @@ frontend in `frontend/`. See README.md for features and configuration.
   streams end on `Workspace::shutdown` so graceful shutdown doesn't hang.
 - `api/` — HTTP routes (`items.rs`, `settings_api.rs`, `accounts_api.rs`
   including the OAuth connect/callback redirects); also serves
-  `static_dir` with SPA fallback.
+  `static_dir` with SPA fallback (nothing when it's empty, as in
+  development, where Vite serves the frontend on :8080 and proxies `/api`
+  to the server on :8081).
 - `lib.rs` — `Workspace` ties config, db, events, the registry and the running
   sources together; `run`/`stop` start, restart and stop sources at runtime.
   It is the seam for future per-user state.
