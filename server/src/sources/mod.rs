@@ -69,6 +69,10 @@ impl ItemKind {
     }
 }
 
+/// How many per-item requests (e.g. a pull request's timeline) a source makes
+/// at once, to be quick without tripping services' rate limits.
+pub(crate) const ITEM_REQUESTS: usize = 8;
+
 /// An item produced by a source.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SourceItem {

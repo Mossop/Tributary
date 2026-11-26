@@ -5,11 +5,12 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
+use futures::{StreamExt as _, TryStreamExt as _, stream};
 use serde_json::Value;
 
 use super::{
-    Field, FieldKind, FieldOption, ItemKind, Source, SourceContext, SourceError, SourceItem,
-    SourceType, references,
+    Field, FieldKind, FieldOption, ITEM_REQUESTS, ItemKind, Source, SourceContext, SourceError,
+    SourceItem, SourceType, references,
 };
 use crate::accounts::{Accounts, BUGZILLA};
 
@@ -232,55 +233,68 @@ async fn requests(
     }
     let bugs = client.search(&query).await?;
 
-    let mut items = Vec::new();
-    for bug in &bugs {
-        // The search matches attachment flags too, which aren't in the
-        // bug's flags.
-        let mut matching: Vec<(&Flag, bool)> = bug
-            .flags
+    // Owned bugs: borrowed ones trip a compiler limitation in the
+    // `async_trait` future.
+    let items: Vec<Option<SourceItem>> = stream::iter(bugs)
+        .map(|bug| async move { request_item(client, me, flag, &bug).await })
+        .buffered(ITEM_REQUESTS)
+        .try_collect()
+        .await?;
+    Ok(items.into_iter().flatten().collect())
+}
+
+/// The item for a bug with requests of me, if it has any.
+async fn request_item(
+    client: &Bugzilla,
+    me: &str,
+    flag: Option<&str>,
+    bug: &Bug,
+) -> Result<Option<SourceItem>, BugzillaError> {
+    // The search matches attachment flags too, which aren't in the bug's
+    // flags.
+    let mut matching: Vec<(&Flag, bool)> = bug
+        .flags
+        .iter()
+        .filter(|f| requested_of_me(f, me, flag))
+        .map(|f| (f, false))
+        .collect();
+    let attachment_flags;
+    if matching.is_empty() {
+        attachment_flags = client.attachment_flags(bug.id).await?;
+        matching = attachment_flags
             .iter()
             .filter(|f| requested_of_me(f, me, flag))
-            .map(|f| (f, false))
+            .map(|f| (f, true))
             .collect();
-        let attachment_flags;
-        if matching.is_empty() {
-            attachment_flags = client.attachment_flags(bug.id).await?;
-            matching = attachment_flags
-                .iter()
-                .filter(|f| requested_of_me(f, me, flag))
-                .map(|f| (f, true))
-                .collect();
-        }
-        if matching.is_empty() {
-            continue;
-        }
-        let requests: Vec<String> = matching
-            .iter()
-            .map(|(f, on_attachment)| {
-                let mut request = format!("{}?", f.name);
-                if let Some(setter) = &f.setter {
-                    request.push_str(&format!(" from {setter}"));
-                }
-                if *on_attachment {
-                    request.push_str(" (attachment)");
-                }
-                request
-            })
-            .collect();
-        let mut item = item(
-            client,
-            bug,
-            format!("Bug {} · {}", bug.id, requests.join(", ")),
-        );
-        // When I was asked.
-        if let Some(asked) = matching.iter().map(|(f, _)| f.modification_date).max() {
-            item.modified = asked;
-        }
-        // A default due date counts from the oldest request.
-        item.due_from = matching.iter().map(|(f, _)| f.creation_date).min();
-        items.push(item);
     }
-    Ok(items)
+    if matching.is_empty() {
+        return Ok(None);
+    }
+    let requests: Vec<String> = matching
+        .iter()
+        .map(|(f, on_attachment)| {
+            let mut request = format!("{}?", f.name);
+            if let Some(setter) = &f.setter {
+                request.push_str(&format!(" from {setter}"));
+            }
+            if *on_attachment {
+                request.push_str(" (attachment)");
+            }
+            request
+        })
+        .collect();
+    let mut item = item(
+        client,
+        bug,
+        format!("Bug {} · {}", bug.id, requests.join(", ")),
+    );
+    // When I was asked.
+    if let Some(asked) = matching.iter().map(|(f, _)| f.modification_date).max() {
+        item.modified = asked;
+    }
+    // A default due date counts from the oldest request.
+    item.due_from = matching.iter().map(|(f, _)| f.creation_date).min();
+    Ok(Some(item))
 }
 
 #[async_trait]

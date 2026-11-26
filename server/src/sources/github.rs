@@ -6,13 +6,14 @@ use std::sync::Arc;
 use anyhow::{Context as _, bail};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use futures::{StreamExt as _, TryStreamExt as _, stream};
 use reqwest::StatusCode;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use serde::Deserialize;
 
 use super::{
-    Field, FieldKind, ItemKind, Source, SourceContext, SourceError, SourceItem, SourceType,
-    references,
+    Field, FieldKind, ITEM_REQUESTS, ItemKind, Source, SourceContext, SourceError, SourceItem,
+    SourceType, references,
 };
 use crate::accounts::{Accounts, GITHUB};
 
@@ -198,22 +199,25 @@ impl GithubSource {
             .await
             .context("unexpected response from GitHub")?;
 
-        let mut items = Vec::new();
-        for issue in body.items {
-            let timeline = match (&issue.pull_request, self.due_from) {
-                (Some(_), true) => Some(
-                    self.timeline(&api_url, &token, &issue.repository_url, issue.number)
-                        .await?,
-                ),
-                _ => None,
-            };
-            let mut item = issue.into_item();
-            if let Some(events) = timeline {
-                item.due_from = review_requested_at(&events, &account.name);
-            }
-            items.push(item);
-        }
-        Ok(items)
+        let (api_url, token, account) = (&api_url, &token, &account);
+        stream::iter(body.items)
+            .map(|issue| async move {
+                let timeline = match (&issue.pull_request, self.due_from) {
+                    (Some(_), true) => Some(
+                        self.timeline(api_url, token, &issue.repository_url, issue.number)
+                            .await?,
+                    ),
+                    _ => None,
+                };
+                let mut item = issue.into_item();
+                if let Some(events) = timeline {
+                    item.due_from = review_requested_at(&events, &account.name);
+                }
+                anyhow::Ok(item)
+            })
+            .buffered(ITEM_REQUESTS)
+            .try_collect()
+            .await
     }
 
     /// The events on an issue or pull request, oldest first. `repository_url`

@@ -7,13 +7,14 @@ use std::sync::{Arc, LazyLock};
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use futures::{StreamExt as _, TryStreamExt as _, stream};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
 
 use super::{
-    Field, FieldKind, FieldOption, ItemKind, QuickAction, Source, SourceContext, SourceError,
-    SourceItem, SourceType, references,
+    Field, FieldKind, FieldOption, ITEM_REQUESTS, ItemKind, QuickAction, Source, SourceContext,
+    SourceError, SourceItem, SourceType, references,
 };
 use crate::accounts::{Accounts, PHABRICATOR};
 
@@ -334,33 +335,43 @@ async fn reviews(
         .collect();
 
     let authors = user_names(conduit, wanted.iter().map(|(r, _)| &r.fields.author_phid)).await?;
-    let mut items = Vec::new();
-    for (revision, reason) in &wanted {
-        let author = &revision.fields.author_phid;
-        let author = authors.get(author).unwrap_or(author);
-        let mut description = format!("D{} · by {author}", revision.id);
-        if let ReviewReason::Group(group) = reason {
-            let group = group_names.get(group.as_str()).unwrap_or(group);
-            description.push_str(&format!(" · for {group}"));
-        }
-        let mut item = item(revision, description);
-        if due_from {
-            let (reviewer, older) = match reason {
-                ReviewReason::Direct => {
-                    let mine = revision.attachments.reviewers.reviewers.iter();
-                    let status = mine.filter(|r| r.phid == me).map(|r| r.status.as_str());
-                    (me, status.into_iter().any(|s| s.ends_with("-older")))
-                }
-                ReviewReason::Group(group) => (group.as_str(), false),
-            };
-            let transactions = conduit.transactions(revision.id).await?;
-            let asked =
-                review_requested_at(&transactions, reviewer, older, revision.fields.date_created);
-            item.due_from = Some(timestamp(asked));
-        }
-        items.push(item);
-    }
-    Ok(items)
+    let (authors, group_names) = (&authors, &group_names);
+    // Owned items: borrowed ones trip a compiler limitation in the
+    // `async_trait` future.
+    stream::iter(wanted)
+        .map(|(revision, reason)| async move {
+            let (revision, reason) = (&revision, &reason);
+            let author = &revision.fields.author_phid;
+            let author = authors.get(author).unwrap_or(author);
+            let mut description = format!("D{} · by {author}", revision.id);
+            if let ReviewReason::Group(group) = reason {
+                let group = group_names.get(group.as_str()).unwrap_or(group);
+                description.push_str(&format!(" · for {group}"));
+            }
+            let mut item = item(revision, description);
+            if due_from {
+                let (reviewer, older) = match reason {
+                    ReviewReason::Direct => {
+                        let mine = revision.attachments.reviewers.reviewers.iter();
+                        let status = mine.filter(|r| r.phid == me).map(|r| r.status.as_str());
+                        (me, status.into_iter().any(|s| s.ends_with("-older")))
+                    }
+                    ReviewReason::Group(group) => (group.as_str(), false),
+                };
+                let transactions = conduit.transactions(revision.id).await?;
+                let asked = review_requested_at(
+                    &transactions,
+                    reviewer,
+                    older,
+                    revision.fields.date_created,
+                );
+                item.due_from = Some(timestamp(asked));
+            }
+            Ok(item)
+        })
+        .buffered(ITEM_REQUESTS)
+        .try_collect()
+        .await
 }
 
 /// My revisions with one of `statuses`, optionally with a quick action to
@@ -381,17 +392,20 @@ async fn authored(
             }),
         )
         .await?;
-    let mut items = Vec::new();
-    for revision in &revisions {
-        let mut item = authored_item(revision, lando);
-        if due_from {
-            let transactions = conduit.transactions(revision.id).await?;
-            let accepted = accepted_at(&transactions, revision.fields.date_modified);
-            item.due_from = Some(timestamp(accepted));
-        }
-        items.push(item);
-    }
-    Ok(items)
+    // Owned items, as in `reviews`.
+    stream::iter(revisions)
+        .map(|revision| async move {
+            let mut item = authored_item(&revision, lando);
+            if due_from {
+                let transactions = conduit.transactions(revision.id).await?;
+                let accepted = accepted_at(&transactions, revision.fields.date_modified);
+                item.due_from = Some(timestamp(accepted));
+            }
+            Ok(item)
+        })
+        .buffered(ITEM_REQUESTS)
+        .try_collect()
+        .await
 }
 
 /// The item for one of my revisions, with a link to land it in Lando if

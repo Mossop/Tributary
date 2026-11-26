@@ -391,6 +391,58 @@ async fn reviews_are_due_after_they_were_requested() {
 }
 
 #[tokio::test]
+async fn fetches_review_requests_concurrently() {
+    let github = MockServer::start().await;
+    let app = start().await;
+    let prs: Vec<Value> = (1..=8)
+        .map(|n| {
+            json!({
+                "number": n,
+                "title": format!("PR {n}"),
+                "html_url": format!("https://github.com/owner/repo/pull/{n}"),
+                "repository_url": "https://api.github.com/repos/owner/repo",
+                "updated_at": "2026-03-04T05:06:07Z",
+                "user": { "login": "bob" },
+                "state": "open",
+                "pull_request": { "merged_at": null },
+            })
+        })
+        .collect();
+    Mock::given(method("GET"))
+        .and(path("/search/issues"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "items": prs })))
+        .mount(&github)
+        .await;
+    let delay = std::time::Duration::from_millis(300);
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex(
+            r"^/repos/owner/repo/issues/\d+/timeline$",
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!([]))
+                .set_delay(delay),
+        )
+        .mount(&github)
+        .await;
+    add_source_with(
+        &app,
+        &github,
+        "is:open",
+        json!({ "days": 2, "business_days": false, "from": "requested" }),
+    )
+    .await;
+
+    let started = std::time::Instant::now();
+    app.refresh("default").await;
+    // One at a time would take 8 delays.
+    assert!(started.elapsed() < delay * 4, "{:?}", started.elapsed());
+    assert_eq!(last_error(&app).await, Value::Null);
+    let items = app.get("/api/contexts/default/items").await;
+    assert_eq!(items.as_array().unwrap().len(), 8);
+}
+
+#[tokio::test]
 async fn items_can_be_due_after_they_were_created() {
     let github = MockServer::start().await;
     let app = start().await;
