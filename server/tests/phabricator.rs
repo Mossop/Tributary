@@ -316,6 +316,8 @@ async fn lists_patches_waiting_for_my_review() {
     assert_eq!(item["url"], "https://phab.test/D1");
     assert_eq!(item["modified"], "2023-11-14T22:13:21Z");
     assert_eq!(item["actions"], json!([]));
+    // Its own id, and the bug from its title.
+    assert_eq!(item["references"], json!(["phab:D1", "bugzilla:1"]));
 }
 
 #[tokio::test]

@@ -33,6 +33,7 @@ pub mod bugzilla;
 pub mod github;
 pub mod google_tasks;
 pub mod phabricator;
+pub mod references;
 pub mod stub;
 
 /// What kind of thing an item is. Every item is one of these, so the
@@ -87,6 +88,11 @@ pub struct SourceItem {
     /// Quick actions offered for this item, performed by [`Source::perform`].
     #[serde(default)]
     pub actions: Vec<QuickAction>,
+    /// Identifiers of what the item is about, including itself, e.g.
+    /// `bugzilla:123`, `phab:D456` or `github:owner/repo:7` (see
+    /// [`references`]). Items sharing any are grouped in the dashboard.
+    #[serde(default)]
+    pub references: Vec<String>,
 }
 
 /// Something that can be done to an item directly from the dashboard.

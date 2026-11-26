@@ -181,6 +181,7 @@ async fn lists_open_bugs_assigned_to_me_across_pages() {
         format!("{}/show_bug.cgi?id=501", bugzilla.uri())
     );
     assert_eq!(item["description"], "Bug 501 · Firefox :: General · NEW");
+    assert_eq!(item["references"], json!(["bugzilla:501"]));
     assert_eq!(
         app.get("/api/sources").await[0]["icon"],
         "https://bugzilla.mozilla.org/favicon.ico"

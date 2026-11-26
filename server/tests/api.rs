@@ -78,6 +78,7 @@ async fn items_are_filtered_by_context_and_sorted() {
             "snoozed_until": null,
             "snoozed_forever": false,
             "actions": [],
+            "references": [],
         })
     );
 }
@@ -439,4 +440,15 @@ async fn link_actions_are_not_performed() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(body["error"], "unknown action `done`");
     assert!(app.source("a").performed().is_empty());
+}
+
+#[tokio::test]
+async fn items_carry_their_references() {
+    let app = setup().await;
+    let mut referencing = item("1", 1, None);
+    referencing.references = vec!["bugzilla:1".to_string(), "phab:D2".to_string()];
+    app.source("a").set_items(vec![referencing]);
+    app.refresh("work").await;
+    let items = app.get("/api/contexts/work/items").await;
+    assert_eq!(items[0]["references"], json!(["bugzilla:1", "phab:D2"]));
 }

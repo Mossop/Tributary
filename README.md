@@ -9,6 +9,10 @@ list, so you can see everything you need to do in one place.
   the header moves between them.
 - Items are sorted with those that have a due date first (soonest first),
   followed by the rest, least recently modified first.
+- **Related items are grouped.** A bug, the patch fixing it and a task linking
+  to either are shown together: the group sits where its highest member
+  would, led by an issue (or else a task, then a patch), with the others
+  indented beneath. Each keeps its own snooze and due date.
 - Every item is a **task**, an **issue** or a **patch** (e.g. a pull request).
   Buttons at the top of the list show or hide each kind; each context
   remembers its choice.
@@ -214,6 +218,20 @@ action with a `url` is a link instead: the dashboard opens it in a new tab
 and `perform` isn't called. An item's
 `id` should contain whatever `perform` needs, e.g. `list/task` for Google
 Tasks.
+
+An item's `references` name what it's about, including itself; items
+sharing any are grouped, transitively. Use the helpers in
+`server/src/sources/references.rs`: `bugzilla:<id>` (Mozilla's Bugzilla),
+`phab:D<id>` and `github:<owner>/<repo>:<number>`. `references::in_text`
+finds them as links in free text. Currently:
+
+- Bugzilla bugs reference themselves.
+- Phabricator revisions reference themselves and their bug (Mozilla's bug
+  field, or a title starting "Bug N").
+- GitHub issues and pull requests reference themselves; pull requests also
+  reference the issues they close ("Fixes #12").
+- Google tasks reference any Bugzilla, Phabricator or GitHub links in their
+  title or notes.
 
 1. Add a module under `server/src/sources/` with a `Deserialize` config struct
    and the `Source` implementation.

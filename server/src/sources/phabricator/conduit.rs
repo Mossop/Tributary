@@ -159,6 +159,9 @@ pub struct RevisionFields {
     pub status: RevisionStatus,
     /// Epoch seconds.
     pub date_modified: i64,
+    /// Mozilla's field for the revision's bug, a string or null.
+    #[serde(rename = "bugzilla.bug-id", default)]
+    pub bug_id: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

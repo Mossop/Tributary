@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use super::{
     Field, FieldKind, FieldOption, ItemKind, QuickAction, Source, SourceContext, SourceError,
-    SourceItem, SourceType,
+    SourceItem, SourceType, references,
 };
 use crate::accounts::{Accounts, GOOGLE};
 
@@ -121,6 +121,11 @@ impl Task {
     /// showing every list.
     fn into_item(self, list_id: &str, list_title: Option<&str>) -> SourceItem {
         let notes = self.notes.filter(|n| !n.trim().is_empty());
+        let refs = references::in_text(&format!(
+            "{}\n{}",
+            self.title,
+            notes.as_deref().unwrap_or_default()
+        ));
         let description = match (list_title, notes) {
             (Some(list), Some(notes)) => Some(format!("{list} · {notes}")),
             (Some(list), None) => Some(list.to_string()),
@@ -153,6 +158,7 @@ impl Task {
                 icon: "symbol:check_circle".to_string(),
                 url: None,
             }],
+            references: refs,
         }
     }
 }
@@ -385,6 +391,18 @@ mod tests {
         with_notes["notes"] = "Some notes".into();
         let item = task(with_notes).into_item("shop", Some("Groceries"));
         assert_eq!(item.description.as_deref(), Some("Groceries · Some notes"));
+    }
+
+    #[test]
+    fn references_linked_bugs_and_patches() {
+        let item = task(serde_json::json!({
+            "id": "t1",
+            "title": "Review https://phabricator.services.mozilla.com/D9",
+            "notes": "For https://bugzilla.mozilla.org/show_bug.cgi?id=42",
+            "updated": "2026-11-20T10:00:00Z",
+        }))
+        .into_item("inbox", None);
+        assert_eq!(item.references, ["phab:D9", "bugzilla:42"]);
     }
 
     #[test]

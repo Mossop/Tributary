@@ -107,6 +107,7 @@ pub fn item(id: &str, modified: u32, due: Option<u32>) -> SourceItem {
         description: None,
         due: due.map(time),
         actions: Vec::new(),
+        references: Vec::new(),
     }
 }
 

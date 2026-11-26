@@ -25,7 +25,8 @@ frontend in `frontend/`. See README.md for features and configuration.
   (`conduit.rs` is the Conduit client; the review rules are in
   `review_reason`), `sources/bugzilla/` (`client.rs` is the REST client)
   and `sources/stub.rs` are implementations; stub is unlisted (tests/dev
-  only).
+  only). `sources/references.rs` builds and finds item references, which
+  group related items.
 - `accounts.rs` — connected accounts in SQLite (`secret` is a Google refresh
   token or a GitHub access token and never leaves the server) and
   `Accounts`: Google access tokens, GitHub credentials, revocations and
@@ -56,7 +57,8 @@ frontend in `frontend/`. See README.md for features and configuration.
 
 - `api.ts` — typed API client; `store.ts` — state, SSE subscription, activity
   pings; `route.ts` — `/c/<context>[/snoozed]` and `/settings` URLs;
-  `format.ts` — date helpers; `settings-form.ts` — pure helpers for the
+  `format.ts` — date helpers; `groups.ts` — groups items sharing
+  references; `settings-form.ts` — pure helpers for the
   settings forms.
 - `components/` — `app-shell` (shell), `item-row`, `date-dialog`,
   `settings-page`, `context-dialog`, `source-dialog` (form generated from the

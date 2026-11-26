@@ -2,17 +2,18 @@
 //! need work, and my own that are ready to land.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
 use chrono::DateTime;
+use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
 
 use super::{
     Field, FieldKind, FieldOption, ItemKind, QuickAction, Source, SourceContext, SourceError,
-    SourceItem, SourceType,
+    SourceItem, SourceType, references,
 };
 use crate::accounts::{Accounts, PHABRICATOR};
 
@@ -188,7 +189,30 @@ impl PhabricatorSource {
     }
 }
 
+static TITLE_BUG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^\s*bug\s+(\d+)\b").unwrap());
+
+/// The bug a revision is for: Mozilla's bug field, or else a title starting
+/// "Bug N".
+fn bug_of(revision: &Revision) -> Option<String> {
+    let field = match &revision.fields.bug_id {
+        Some(serde_json::Value::String(id)) => Some(id.trim().to_string()),
+        Some(serde_json::Value::Number(id)) => Some(id.to_string()),
+        _ => None,
+    };
+    field
+        .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
+        .or_else(|| {
+            TITLE_BUG
+                .captures(&revision.fields.title)
+                .map(|c| c[1].to_string())
+        })
+}
+
 fn item(revision: &Revision, description: String) -> SourceItem {
+    let mut refs = vec![references::phab(revision.id)];
+    if let Some(bug) = bug_of(revision) {
+        refs.push(references::bugzilla(bug));
+    }
     SourceItem {
         id: format!("D{}", revision.id),
         kind: ItemKind::Patch,
@@ -199,6 +223,7 @@ fn item(revision: &Revision, description: String) -> SourceItem {
         description: Some(description),
         due: None,
         actions: Vec::new(),
+        references: refs,
     }
 }
 
@@ -357,6 +382,7 @@ mod tests {
                     name: "Needs Review".into(),
                 },
                 date_modified: 0,
+                bug_id: None,
             },
             attachments: RevisionAttachments {
                 reviewers: Reviewers {
@@ -445,6 +471,29 @@ mod tests {
             }]
         );
         assert!(authored_item(&accepted, false).actions.is_empty());
+    }
+
+    #[test]
+    fn references_the_revision_and_its_bug() {
+        let mut r = revision(ME, &[]);
+        r.id = 7;
+        assert_eq!(item(&r, String::new()).references, ["phab:D7"]);
+
+        r.fields.title = "Bug 123 - Fix it r=alice".into();
+        assert_eq!(
+            item(&r, String::new()).references,
+            ["phab:D7", "bugzilla:123"]
+        );
+
+        // Mozilla's bug field wins over the title.
+        r.fields.bug_id = Some(json!("456"));
+        assert_eq!(
+            item(&r, String::new()).references,
+            ["phab:D7", "bugzilla:456"]
+        );
+        r.fields.bug_id = Some(json!(""));
+        r.fields.title = "No bug here".into();
+        assert_eq!(item(&r, String::new()).references, ["phab:D7"]);
     }
 
     #[test]

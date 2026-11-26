@@ -124,6 +124,9 @@ export interface Item {
   snoozed_until: string | null;
   snoozed_forever: boolean;
   actions: QuickAction[];
+  /** Identifiers of what the item is about, including itself, e.g.
+   * `bugzilla:123`. Items sharing one are shown together. */
+  references: string[];
 }
 
 export type ServerEvent =

@@ -61,6 +61,7 @@ pub struct Item {
     pub snoozed_until: Option<DateTime<Utc>>,
     pub snoozed_forever: bool,
     pub actions: Vec<QuickAction>,
+    pub references: Vec<String>,
 }
 
 #[derive(FromRow)]
@@ -78,6 +79,7 @@ struct ItemRow {
     snoozed_until: Option<i64>,
     snoozed_forever: bool,
     actions: String,
+    refs: String,
 }
 
 impl From<ItemRow> for Item {
@@ -96,6 +98,7 @@ impl From<ItemRow> for Item {
             snoozed_until: row.snoozed_until.map(from_ms),
             snoozed_forever: row.snoozed_forever,
             actions: parse_actions(&row.actions),
+            references: serde_json::from_str(&row.refs).unwrap_or_default(),
         }
     }
 }
@@ -129,7 +132,7 @@ pub async fn list_items(
         r#"
         SELECT i.source_id, i.item_id, i.kind, i.title, i.url, i.icon, i.description,
                i.modified, i.due, s.due_override, s.snoozed_until,
-               COALESCE(s.snoozed_forever, 0) AS snoozed_forever, i.actions
+               COALESCE(s.snoozed_forever, 0) AS snoozed_forever, i.actions, i.refs
         FROM items i
         LEFT JOIN item_state s ON s.source_id = i.source_id AND s.item_id = i.item_id
         WHERE i.source_id IN (SELECT value FROM json_each(?1))
@@ -190,8 +193,9 @@ pub async fn replace_items(
         sqlx::query(
             r#"
             INSERT OR REPLACE INTO items
-                (source_id, item_id, kind, title, url, icon, description, modified, due, actions)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                (source_id, item_id, kind, title, url, icon, description, modified, due, actions,
+                 refs)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             "#,
         )
         .bind(source_id)
@@ -204,6 +208,7 @@ pub async fn replace_items(
         .bind(to_ms(item.modified))
         .bind(item.due.map(to_ms))
         .bind(serde_json::to_string(&item.actions).expect("actions serialize"))
+        .bind(serde_json::to_string(&item.references).expect("references serialize"))
         .execute(&mut *tx)
         .await?;
     }
@@ -367,6 +372,7 @@ mod tests {
             description: None,
             due: due.map(time),
             actions: Vec::new(),
+            references: Vec::new(),
         }
     }
 

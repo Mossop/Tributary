@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::{
     Field, FieldKind, FieldOption, ItemKind, Source, SourceContext, SourceError, SourceItem,
-    SourceType,
+    SourceType, references,
 };
 use crate::accounts::{Accounts, BUGZILLA};
 
@@ -170,6 +170,7 @@ fn item(client: &Bugzilla, bug: &Bug, description: String) -> SourceItem {
         description: Some(description),
         due: None,
         actions: Vec::new(),
+        references: vec![references::bugzilla(bug.id)],
     }
 }
 

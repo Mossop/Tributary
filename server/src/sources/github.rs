@@ -11,6 +11,7 @@ use serde::Deserialize;
 
 use super::{
     Field, FieldKind, ItemKind, Source, SourceContext, SourceError, SourceItem, SourceType,
+    references,
 };
 use crate::accounts::{Accounts, GITHUB};
 
@@ -212,6 +213,8 @@ struct Issue {
     #[serde(default)]
     draft: bool,
     pull_request: Option<PullRequest>,
+    #[serde(default)]
+    body: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -280,6 +283,13 @@ impl Issue {
             Some(user) => format!("{repo} #{} · {kind} by {}", self.number, user.login),
             None => format!("{repo} #{} · {kind}", self.number),
         };
+        let mut refs = vec![references::github(&repo, self.number)];
+        if self.pull_request.is_some() {
+            let body = self.body.as_deref().unwrap_or_default();
+            for reference in references::github_closing(body, &repo) {
+                references::push(&mut refs, reference);
+            }
+        }
 
         SourceItem {
             id: format!("{repo}#{}", self.number),
@@ -291,6 +301,7 @@ impl Issue {
             description: Some(description),
             due: None,
             actions: Vec::new(),
+            references: refs,
         }
     }
 }
@@ -324,6 +335,7 @@ mod tests {
             state_reason: state_reason.map(Into::into),
             draft: false,
             pull_request: None,
+            body: None,
         }
     }
 
@@ -335,6 +347,32 @@ mod tests {
             }),
             ..issue(state, None)
         }
+    }
+
+    #[test]
+    fn references_the_issue_and_what_a_pr_closes() {
+        assert_eq!(
+            issue("open", None).into_item().references,
+            ["github:owner/repo:1"]
+        );
+        let closing = Issue {
+            body: Some("Fixes #3 and closes other/thing#4. See #5.".into()),
+            ..pr("open", false, false)
+        };
+        assert_eq!(
+            closing.into_item().references,
+            [
+                "github:owner/repo:1",
+                "github:owner/repo:3",
+                "github:other/thing:4"
+            ]
+        );
+        // Issues' bodies don't close anything.
+        let mentioning = Issue {
+            body: Some("Fixes #3".into()),
+            ..issue("open", None)
+        };
+        assert_eq!(mentioning.into_item().references, ["github:owner/repo:1"]);
     }
 
     #[test]

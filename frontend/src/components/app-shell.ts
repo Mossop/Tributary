@@ -8,7 +8,9 @@ import "@awesome.me/webawesome/dist/components/dropdown-item/dropdown-item.js";
 import "@awesome.me/webawesome/dist/components/icon/icon.js";
 import "@awesome.me/webawesome/dist/components/spinner/spinner.js";
 
+import type { Item } from "../api.ts";
 import { type Route, parseRoute, routeUrl } from "../route.ts";
+import { groupItems } from "../groups.ts";
 import { ITEM_KINDS, visibleItems } from "../kinds.ts";
 import { Store, type State, itemKey } from "../store.ts";
 import type { DateDialog } from "./date-dialog.ts";
@@ -70,7 +72,7 @@ export class AppShell extends LitElement {
       overflow: hidden;
     }
 
-    item-row,
+    .group,
     .list > .empty {
       border-top: var(--wa-border-width-s) solid var(--wa-color-surface-border);
     }
@@ -353,15 +355,21 @@ export class AppShell extends LitElement {
     }
     let now = new Date();
     let sourcesById = new Map(sources.map((s) => [s.id, s]));
-    return shown.map(
-      (item) =>
-        html`<item-row
-          .item=${item}
-          .source=${sourcesById.get(item.source_id)}
-          .now=${now}
-          ?snoozed=${snoozed}
-          ?busy=${this.state.busy.includes(itemKey(item))}
-        ></item-row>`,
+    let row = (item: Item, nested: boolean) =>
+      html`<item-row
+        .item=${item}
+        .source=${sourcesById.get(item.source_id)}
+        .now=${now}
+        ?snoozed=${snoozed}
+        ?nested=${nested}
+        ?busy=${this.state.busy.includes(itemKey(item))}
+      ></item-row>`;
+    // Related items are shown under the group's lead.
+    return groupItems(shown).map(
+      ([lead, ...related]) =>
+        html`<div class="group">
+          ${row(lead, false)} ${related.map((item) => row(item, true))}
+        </div>`,
     );
   }
 

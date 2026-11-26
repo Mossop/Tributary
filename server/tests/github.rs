@@ -187,7 +187,9 @@ async fn searches_and_maps_items() {
             .starts_with("data:image/svg+xml,%3Csvg fill='%231a7f37' ")
     );
 
+    assert_eq!(pr["references"], json!(["github:owner/repo:12"]));
     assert_eq!(issue["id"], "owner/other#3");
+    assert_eq!(issue["references"], json!(["github:owner/other:3"]));
     assert_eq!(issue["kind"], "issue");
     assert_eq!(issue["description"], "owner/other #3 · Issue");
     assert!(

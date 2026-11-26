@@ -2575,6 +2575,7 @@ dependencies = [
  "futures",
  "http-body-util",
  "humantime-serde",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

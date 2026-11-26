@@ -26,6 +26,7 @@ function item(fields: Partial<Item> = {}): Item {
     snoozed_until: null,
     snoozed_forever: false,
     actions: [],
+    references: [],
     ...fields,
   };
 }

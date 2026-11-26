@@ -41,6 +41,8 @@ export class ItemRow extends LitElement {
   @property({ type: Boolean }) snoozed = false;
   /** A quick action is in progress. */
   @property({ type: Boolean }) busy = false;
+  /** Shown under a related item, as part of its group. */
+  @property({ type: Boolean, reflect: true }) nested = false;
   @property({ attribute: false }) now = new Date();
 
   static styles = css`
@@ -49,6 +51,22 @@ export class ItemRow extends LitElement {
       align-items: center;
       gap: var(--wa-space-m);
       padding: var(--wa-space-s) var(--wa-space-m);
+    }
+
+    /* A related item, shown under its group's lead. */
+    :host([nested]) {
+      position: relative;
+      padding-left: calc(2 * var(--wa-space-m) + 24px);
+    }
+
+    /* A divider above it, starting at its indent. */
+    :host([nested])::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: calc(2 * var(--wa-space-m) + 24px);
+      right: 0;
+      border-top: var(--wa-border-width-s) solid var(--wa-color-surface-border);
     }
 
     .icon {

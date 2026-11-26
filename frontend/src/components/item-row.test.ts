@@ -176,6 +176,17 @@ describe("item-row", () => {
     expect(actions).toEqual([]);
   });
 
+  it("reflects being nested in a group", async () => {
+    let row = await render({ item: makeItem(), nested: true });
+    expect(row.hasAttribute("nested")).toBe(true);
+    // Nested rows keep their own actions.
+    expect(
+      row.shadowRoot!.querySelector("wa-button[title='Snooze']"),
+    ).not.toBeNull();
+    row = await render({ item: makeItem() });
+    expect(row.hasAttribute("nested")).toBe(false);
+  });
+
   it("shows quick actions in progress", async () => {
     let item = makeItem({
       actions: [
