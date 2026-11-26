@@ -31,6 +31,7 @@ export function makeSource(fields: Partial<Source> = {}): Source {
     contexts: ["work"],
     config: {},
     secrets_set: [],
+    default_due: null,
     status: { last_attempt: null, last_success: null, last_error: null },
     ...fields,
   };

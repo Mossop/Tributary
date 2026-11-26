@@ -107,4 +107,26 @@ describe("source-dialog", () => {
       expect(options.map((o) => o.textContent)).toContain("All lists");
     });
   });
+
+  it("offers a default due date only for types that count one", async () => {
+    let { waDialog } = await open();
+    expect(waDialog.querySelector("wa-input[type='number']")).toBeNull();
+
+    document.body.replaceChildren();
+    let dialog = document.createElement("source-dialog") as SourceDialog;
+    document.body.append(dialog);
+    dialog.show(
+      { ...tasks, default_due: "after the request was made" },
+      null,
+      [],
+      [],
+      null,
+      async () => {},
+    );
+    await dialog.updateComplete;
+    let input = dialog.shadowRoot!.querySelector("wa-input[type='number']")!;
+    expect(input.getAttribute("hint")).toBe(
+      "Counted after the request was made. Leave empty for none.",
+    );
+  });
 });

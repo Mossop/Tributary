@@ -16,6 +16,9 @@ export interface SourceFormValues {
   contexts: string[];
   /** Type specific settings by field key, as entered. */
   fields: Record<string, string>;
+  /** Days for the default due date, as entered; blank for none. */
+  dueDays: string;
+  businessDays: boolean;
 }
 
 /** Initial form values for a new source, or for editing an existing one. */
@@ -28,6 +31,8 @@ export function initialValues(
       name: "",
       contexts: defaultContext ? [defaultContext] : [],
       fields: {},
+      dueDays: "",
+      businessDays: false,
     };
   }
   let fields: Record<string, string> = {};
@@ -38,6 +43,8 @@ export function initialValues(
     name: source.name,
     contexts: [...source.contexts],
     fields,
+    dueDays: source.default_due ? String(source.default_due.days) : "",
+    businessDays: source.default_due?.business_days ?? false,
   };
 }
 
@@ -62,6 +69,19 @@ export function sourceSettings(
     contexts: values.contexts,
     config,
   };
+  if (type.default_due) {
+    let days = values.dueDays.trim();
+    // Anything that isn't a whole number is sent as 0 so the server
+    // explains the allowed range.
+    let parsed = Number(days);
+    settings.default_due =
+      days == ""
+        ? null
+        : {
+            days: Number.isInteger(parsed) ? parsed : 0,
+            business_days: values.businessDays,
+          };
+  }
   if (creating) {
     settings.type = type.id;
   }

@@ -22,6 +22,7 @@ pub mod activity;
 pub mod api;
 pub mod config;
 pub mod db;
+pub mod due;
 pub mod events;
 pub mod google;
 pub mod scheduler;
@@ -101,10 +102,12 @@ impl Workspace {
             .await;
     }
 
-    /// What sources get to build and fetch with.
-    pub fn source_context(&self) -> SourceContext {
+    /// What sources get to build and fetch with. `wants_due_from` is
+    /// whether the source has a default due date.
+    pub fn source_context(&self, wants_due_from: bool) -> SourceContext {
         SourceContext {
             accounts: self.accounts.clone(),
+            wants_due_from,
         }
     }
 
@@ -112,7 +115,10 @@ impl Workspace {
     /// the source can't be built the failure is recorded in its status.
     pub async fn run(&self, record: &SourceRecord) {
         let built = match self.registry.get(&record.kind) {
-            Some(source_type) => source_type.build(&record.config, &self.source_context()),
+            Some(source_type) => source_type.build(
+                &record.config,
+                &self.source_context(record.default_due.is_some()),
+            ),
             None => Err(anyhow::anyhow!("unknown source type `{}`", record.kind)),
         };
         match built {
@@ -125,6 +131,7 @@ impl Workspace {
                             source_id: record.id.clone(),
                             interval: self.config.polling.active,
                             idle_interval: self.config.polling.idle,
+                            default_due: record.default_due,
                         },
                         source,
                         self.pool.clone(),

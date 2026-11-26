@@ -372,6 +372,7 @@ mod tests {
             description: None,
             due: due.map(time),
             actions: Vec::new(),
+            due_from: None,
             references: Vec::new(),
         }
     }

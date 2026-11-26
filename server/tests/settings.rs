@@ -7,7 +7,7 @@ use std::time::Duration;
 use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
 
-use common::{item, start, start_polling, start_with, wait_for};
+use common::{item, start, start_polling, start_with, time, wait_for};
 use tributary::db;
 use tributary::settings::{self, SourceRecord};
 
@@ -417,6 +417,7 @@ async fn unbuildable_sources_report_an_error() {
             name: "Gone".to_string(),
             contexts: vec!["default".to_string()],
             config: json!({}),
+            default_due: None,
         },
     )
     .await
@@ -431,4 +432,173 @@ async fn unbuildable_sources_report_an_error() {
     assert_eq!(sources[0]["icon"], "");
     // Refreshing a source that isn't running is harmless.
     app.refresh("default").await;
+}
+
+/// Adds a test source with a default due date, returning its id.
+async fn add_due_source(
+    app: &common::TestApp,
+    key: &str,
+    default_due: Value,
+) -> (StatusCode, Value) {
+    app.request(
+        Method::POST,
+        "/api/sources",
+        Some(json!({
+            "type": "test",
+            "name": "Due",
+            "contexts": ["default"],
+            "config": { "key": key },
+            "default_due": default_due,
+        })),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn default_due_dates_count_from_items() {
+    let app = start().await;
+    let (status, body) =
+        add_due_source(&app, "d", json!({ "days": 3, "business_days": false })).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(
+        body["default_due"],
+        json!({ "days": 3, "business_days": false })
+    );
+    let id = body["id"].as_str().unwrap().to_string();
+
+    let mut counted = item("counted", 1, None);
+    counted.due_from = Some(time(5));
+    let mut own = item("own", 2, Some(20));
+    own.due_from = Some(time(5));
+    let none = item("none", 3, None);
+    app.source("d").set_items(vec![counted, own, none]);
+    app.refresh("default").await;
+
+    let items = app.get("/api/contexts/default/items").await;
+    let due = |id: &str| {
+        items
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == id)
+            .unwrap()["due"]
+            .clone()
+    };
+    // Jan 5th 2026 + 3 days.
+    assert_eq!(due("counted"), "2026-01-08T00:00:00Z");
+    // The source's own due date wins.
+    assert_eq!(due("own"), "2026-01-20T00:00:00Z");
+    assert_eq!(due("none"), Value::Null);
+
+    // Business days: Monday Jan 5th + 3 is Thursday; Friday Jan 9th + 1 is
+    // Monday.
+    let mut friday = item("friday", 4, None);
+    friday.due_from = Some(time(9));
+    let mut counted = item("counted", 1, None);
+    counted.due_from = Some(time(5));
+    app.source("d").set_items(vec![counted, friday]);
+    let (status, body) = app
+        .request(
+            Method::PUT,
+            &format!("/api/sources/{id}"),
+            Some(json!({
+                "name": "Due",
+                "contexts": ["default"],
+                "config": { "key": "d" },
+                "default_due": { "days": 1, "business_days": true },
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    app.refresh("default").await;
+    let items = app.get("/api/contexts/default/items").await;
+    let dues: Vec<(&str, &str)> = items
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| (i["id"].as_str().unwrap(), i["due"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        dues,
+        [
+            ("counted", "2026-01-06T00:00:00Z"),
+            ("friday", "2026-01-12T00:00:00Z")
+        ]
+    );
+
+    // Turning it off.
+    app.request(
+        Method::PUT,
+        &format!("/api/sources/{id}"),
+        Some(json!({ "name": "Due", "contexts": ["default"], "config": { "key": "d" } })),
+    )
+    .await;
+    app.refresh("default").await;
+    let items = app.get("/api/contexts/default/items").await;
+    assert_eq!(items[0]["due"], Value::Null);
+    assert_eq!(app.get("/api/sources").await[0]["default_due"], Value::Null);
+}
+
+#[tokio::test]
+async fn overrides_beat_default_due_dates() {
+    let app = start().await;
+    add_due_source(&app, "d", json!({ "days": 3, "business_days": false })).await;
+    let mut counted = item("1", 1, None);
+    counted.due_from = Some(time(5));
+    app.source("d").set_items(vec![counted]);
+    app.refresh("default").await;
+
+    let id = app.get("/api/sources").await[0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, _) = app
+        .request(
+            Method::PUT,
+            &format!("/api/items/{id}/1/due"),
+            Some(json!({ "due": "2026-02-01T00:00:00Z" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let items = app.get("/api/contexts/default/items").await;
+    assert_eq!(items[0]["due"], "2026-01-08T00:00:00Z");
+    assert_eq!(items[0]["due_override"], "2026-02-01T00:00:00Z");
+}
+
+#[tokio::test]
+async fn validates_default_due_dates() {
+    let app = start().await;
+    for days in [0, 366] {
+        let (status, body) =
+            add_due_source(&app, "d", json!({ "days": days, "business_days": false })).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            body["error"],
+            "The default due date must be between 1 and 365 days"
+        );
+    }
+    let (status, body) = app
+        .request(
+            Method::POST,
+            "/api/sources",
+            Some(json!({
+                "type": "stub",
+                "name": "Stub",
+                "contexts": ["default"],
+                "config": {},
+                "default_due": { "days": 1, "business_days": false },
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "Stub sources don't have default due dates");
+
+    let types = app.get("/api/source-types").await;
+    let test = types
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["id"] == "test")
+        .unwrap();
+    assert_eq!(test["default_due"], "after testing");
 }

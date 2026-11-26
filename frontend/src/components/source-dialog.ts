@@ -71,6 +71,12 @@ export class SourceDialog extends LitElement {
       font-weight: var(--wa-font-weight-semibold);
       margin-bottom: var(--wa-space-xs);
     }
+
+    .due {
+      display: flex;
+      flex-direction: column;
+      gap: var(--wa-space-xs);
+    }
   `;
 
   /**
@@ -228,6 +234,32 @@ export class SourceDialog extends LitElement {
     </wa-select>`;
   }
 
+  /** For types that can count a default due date from something. */
+  private renderDefaultDue() {
+    let from = this.type?.default_due;
+    if (!from) {
+      return nothing;
+    }
+    return html`<div class="due">
+      <wa-input
+        label="Default due date (days)"
+        hint="Counted ${from}. Leave empty for none."
+        type="number"
+        min="1"
+        max="365"
+        .value=${this.values.dueDays}
+        @input=${(e: Event) =>
+          this.set({ dueDays: (e.target as HTMLInputElement).value })}
+      ></wa-input>
+      <wa-checkbox
+        .checked=${this.values.businessDays}
+        @change=${(e: Event) =>
+          this.set({ businessDays: (e.target as HTMLInputElement).checked })}
+        >Business days</wa-checkbox
+      >
+    </div>`;
+  }
+
   private renderField(field: Field) {
     if (field.kind == "account") {
       return this.renderAccountField(field);
@@ -304,6 +336,7 @@ export class SourceDialog extends LitElement {
             )}
           </fieldset>
           ${this.type?.fields.map((field) => this.renderField(field))}
+          ${this.renderDefaultDue()}
           <button type="submit" hidden></button>
         </form>
         <wa-button

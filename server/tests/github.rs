@@ -32,6 +32,17 @@ async fn add_account(app: &TestApp, github: &MockServer, token: &str) -> (Status
 
 /// Adds an account for `secret` and a source searching with it.
 async fn add_source(app: &TestApp, github: &MockServer, query: &str) -> String {
+    add_source_with(app, github, query, Value::Null).await
+}
+
+/// Adds an account for `secret` and a source searching with it, with
+/// `default_due`.
+async fn add_source_with(
+    app: &TestApp,
+    github: &MockServer,
+    query: &str,
+    default_due: Value,
+) -> String {
     mock_user(github, "secret").await;
     let (status, account) = add_account(app, github, "secret").await;
     assert_eq!(status, StatusCode::CREATED, "{account}");
@@ -44,6 +55,7 @@ async fn add_source(app: &TestApp, github: &MockServer, query: &str) -> String {
                 "name": "PRs",
                 "contexts": ["default"],
                 "config": { "account": account["id"], "query": query },
+                "default_due": default_due,
             })),
         )
         .await;
@@ -169,6 +181,16 @@ async fn searches_and_maps_items() {
         app.get("/api/sources").await[0]["icon"],
         "https://github.com/favicon.ico"
     );
+
+    // Without a default due date, timelines aren't fetched.
+    let timelines = github
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.url.path().ends_with("/timeline"))
+        .count();
+    assert_eq!(timelines, 0);
 
     let items = app.get("/api/contexts/default/items").await;
     // Oldest first.
@@ -296,4 +318,74 @@ async fn sources_need_a_github_account() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"], "unknown account `missing`");
+}
+
+#[tokio::test]
+async fn reviews_are_due_after_they_were_requested() {
+    let github = MockServer::start().await;
+    let app = start().await;
+    Mock::given(method("GET"))
+        .and(path("/search/issues"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "items": [
+            {
+                "number": 12,
+                "title": "Fix the thing",
+                "html_url": "https://github.com/owner/repo/pull/12",
+                "repository_url": "https://api.github.com/repos/owner/repo",
+                "updated_at": "2026-03-04T05:06:07Z",
+                "user": { "login": "bob" },
+                "state": "open",
+                "pull_request": { "merged_at": null },
+            },
+            {
+                "number": 3,
+                "title": "Broken",
+                "html_url": "https://github.com/owner/repo/issues/3",
+                "repository_url": "https://api.github.com/repos/owner/repo",
+                "updated_at": "2026-03-01T00:00:00Z",
+                "user": null,
+                "state": "open",
+            },
+        ]})))
+        .mount(&github)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/repo/issues/12/timeline"))
+        .and(header("authorization", "Bearer secret"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            { "event": "committed" },
+            {
+                "event": "review_requested",
+                "created_at": "2026-03-02T10:00:00Z",
+                "requested_reviewer": { "login": "alice" },
+            },
+        ])))
+        .mount(&github)
+        .await;
+
+    add_source_with(
+        &app,
+        &github,
+        "is:open",
+        json!({ "days": 2, "business_days": false }),
+    )
+    .await;
+    app.refresh("default").await;
+    assert_eq!(last_error(&app).await, Value::Null);
+    let items = app.get("/api/contexts/default/items").await;
+    let pr = items
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == "owner/repo#12")
+        .unwrap();
+    assert_eq!(pr["due"], "2026-03-04T10:00:00Z");
+    // Issues have no review to count from.
+    let issue = items
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|i| i["id"] == "owner/repo#3")
+        .unwrap();
+    assert_eq!(issue["due"], Value::Null);
 }

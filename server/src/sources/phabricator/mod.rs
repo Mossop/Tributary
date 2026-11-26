@@ -6,7 +6,7 @@ use std::sync::{Arc, LazyLock};
 
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::json;
@@ -19,7 +19,7 @@ use crate::accounts::{Accounts, PHABRICATOR};
 
 pub mod conduit;
 
-use conduit::{Conduit, ConduitError, Project, Reviewer, Revision, User};
+use conduit::{Conduit, ConduitError, Project, Reviewer, Revision, Transaction, User};
 
 pub const ICON: &str = "https://phabricator.services.mozilla.com/file/data/kcrevgcjzkxey3mpl4ww/PHID-FILE-v7mjs2z5uqokqat33d4p/favicon";
 const LANDO_URL: &str = "https://lando.moz.tools";
@@ -90,6 +90,9 @@ pub fn source_type() -> SourceType {
             Ok(Arc::new(PhabricatorSource::new(context, config)?))
         },
     )
+    .with_default_due(
+        "after the review was requested (patches to review) or the patch was accepted (ready to land)",
+    )
     .with_options(|_, _, _| {
         Box::pin(async {
             Ok(List::ALL
@@ -142,6 +145,9 @@ pub struct PhabricatorSource {
     accounts: Arc<Accounts>,
     account: String,
     list: List,
+    /// Work out when reviews were requested and patches accepted, which
+    /// costs a call per revision.
+    due_from: bool,
 }
 
 impl PhabricatorSource {
@@ -151,6 +157,7 @@ impl PhabricatorSource {
             accounts: context.accounts.clone(),
             account: config.account,
             list: config.list,
+            due_from: context.wants_due_from,
         })
     }
 
@@ -164,14 +171,14 @@ impl PhabricatorSource {
         let result = async {
             let me = conduit.whoami().await?.phid;
             match self.list {
-                List::Review => reviews(&conduit, &me).await,
+                List::Review => reviews(&conduit, &me, self.due_from).await,
                 List::Work => {
                     let statuses = ["draft", "needs-revision", "changes-planned"];
-                    authored(&conduit, &me, &statuses, false).await
+                    authored(&conduit, &me, &statuses, false, false).await
                 }
                 List::Land => {
                     let lando = api_url == conduit::DEFAULT_API_URL;
-                    authored(&conduit, &me, &["accepted"], lando).await
+                    authored(&conduit, &me, &["accepted"], lando, self.due_from).await
                 }
             }
         }
@@ -223,12 +230,63 @@ fn item(revision: &Revision, description: String) -> SourceItem {
         description: Some(description),
         due: None,
         actions: Vec::new(),
+        due_from: None,
         references: refs,
     }
 }
 
+fn timestamp(seconds: i64) -> DateTime<Utc> {
+    DateTime::from_timestamp(seconds, 0).unwrap_or_default()
+}
+
+/// When a review was last asked of `reviewer` (me, or the group the
+/// request came through), in epoch seconds: the latest of being added as a
+/// reviewer, the author requesting review again, and, if `older` (my
+/// review was of an earlier diff), a new diff. `created` is the fallback.
+pub fn review_requested_at(
+    transactions: &[Transaction],
+    reviewer: &str,
+    older: bool,
+    created: i64,
+) -> i64 {
+    transactions
+        .iter()
+        .filter(|t| match t.kind.as_deref() {
+            Some("reviewers") => t.fields["operations"].as_array().is_some_and(|ops| {
+                ops.iter()
+                    .any(|op| op["operation"] == "add" && op["phid"] == reviewer)
+            }),
+            Some("request-review") => true,
+            Some("update") => older,
+            _ => false,
+        })
+        .map(|t| t.date_created)
+        .max()
+        .unwrap_or(created)
+}
+
+/// When a revision last became accepted, in epoch seconds: its latest
+/// change of status to accepted, else its latest acceptance, else
+/// `fallback`.
+pub fn accepted_at(transactions: &[Transaction], fallback: i64) -> i64 {
+    let latest = |pick: &dyn Fn(&Transaction) -> bool| {
+        transactions
+            .iter()
+            .filter(|t| pick(t))
+            .map(|t| t.date_created)
+            .max()
+    };
+    latest(&|t| t.kind.as_deref() == Some("status") && t.fields["new"] == "accepted")
+        .or_else(|| latest(&|t| t.kind.as_deref() == Some("accept")))
+        .unwrap_or(fallback)
+}
+
 /// Revisions waiting for my review.
-async fn reviews(conduit: &Conduit, me: &str) -> Result<Vec<SourceItem>, ConduitError> {
+async fn reviews(
+    conduit: &Conduit,
+    me: &str,
+    due_from: bool,
+) -> Result<Vec<SourceItem>, ConduitError> {
     let projects: Vec<Project> = conduit
         .search(
             "project.search",
@@ -277,28 +335,43 @@ async fn reviews(conduit: &Conduit, me: &str) -> Result<Vec<SourceItem>, Conduit
         .collect();
 
     let authors = user_names(conduit, wanted.iter().map(|(r, _)| &r.fields.author_phid)).await?;
-    Ok(wanted
-        .iter()
-        .map(|(revision, reason)| {
-            let author = &revision.fields.author_phid;
-            let author = authors.get(author).unwrap_or(author);
-            let mut description = format!("D{} · by {author}", revision.id);
-            if let ReviewReason::Group(group) = reason {
-                let group = group_names.get(group.as_str()).unwrap_or(group);
-                description.push_str(&format!(" · for {group}"));
-            }
-            item(revision, description)
-        })
-        .collect())
+    let mut items = Vec::new();
+    for (revision, reason) in &wanted {
+        let author = &revision.fields.author_phid;
+        let author = authors.get(author).unwrap_or(author);
+        let mut description = format!("D{} · by {author}", revision.id);
+        if let ReviewReason::Group(group) = reason {
+            let group = group_names.get(group.as_str()).unwrap_or(group);
+            description.push_str(&format!(" · for {group}"));
+        }
+        let mut item = item(revision, description);
+        if due_from {
+            let (reviewer, older) = match reason {
+                ReviewReason::Direct => {
+                    let mine = revision.attachments.reviewers.reviewers.iter();
+                    let status = mine.filter(|r| r.phid == me).map(|r| r.status.as_str());
+                    (me, status.into_iter().any(|s| s.ends_with("-older")))
+                }
+                ReviewReason::Group(group) => (group.as_str(), false),
+            };
+            let transactions = conduit.transactions(revision.id).await?;
+            let asked =
+                review_requested_at(&transactions, reviewer, older, revision.fields.date_created);
+            item.due_from = Some(timestamp(asked));
+        }
+        items.push(item);
+    }
+    Ok(items)
 }
 
 /// My revisions with one of `statuses`, optionally with a quick action to
-/// open them in Lando.
+/// open them in Lando, and with when they were accepted if `due_from`.
 async fn authored(
     conduit: &Conduit,
     me: &str,
     statuses: &[&str],
     lando: bool,
+    due_from: bool,
 ) -> Result<Vec<SourceItem>, ConduitError> {
     let revisions: Vec<Revision> = conduit
         .search(
@@ -309,10 +382,17 @@ async fn authored(
             }),
         )
         .await?;
-    Ok(revisions
-        .iter()
-        .map(|revision| authored_item(revision, lando))
-        .collect())
+    let mut items = Vec::new();
+    for revision in &revisions {
+        let mut item = authored_item(revision, lando);
+        if due_from {
+            let transactions = conduit.transactions(revision.id).await?;
+            let accepted = accepted_at(&transactions, revision.fields.date_modified);
+            item.due_from = Some(timestamp(accepted));
+        }
+        items.push(item);
+    }
+    Ok(items)
 }
 
 /// The item for one of my revisions, with a link to land it in Lando if
@@ -382,6 +462,7 @@ mod tests {
                     name: "Needs Review".into(),
                 },
                 date_modified: 0,
+                date_created: 0,
                 bug_id: None,
             },
             attachments: RevisionAttachments {
@@ -494,6 +575,88 @@ mod tests {
         r.fields.bug_id = Some(json!(""));
         r.fields.title = "No bug here".into();
         assert_eq!(item(&r, String::new()).references, ["phab:D7"]);
+    }
+
+    fn transaction(kind: &str, at: i64, fields: serde_json::Value) -> Transaction {
+        Transaction {
+            kind: Some(kind.into()),
+            date_created: at,
+            fields,
+        }
+    }
+
+    fn added(phid: &str, at: i64) -> Transaction {
+        transaction(
+            "reviewers",
+            at,
+            json!({ "operations": [{ "operation": "add", "phid": phid, "newStatus": "added" }] }),
+        )
+    }
+
+    #[test]
+    fn finds_when_review_was_requested() {
+        let history = [
+            transaction("create", 100, json!({})),
+            transaction("update", 100, json!({})),
+            added("PHID-USER-other", 110),
+            added(ME, 120),
+            added(GROUP, 130),
+            transaction("update", 150, json!({})),
+            transaction("comment", 160, json!({})),
+        ];
+        // When I was added; later diffs don't count while I haven't reviewed.
+        assert_eq!(review_requested_at(&history, ME, false, 1), 120);
+        // Through a group.
+        assert_eq!(review_requested_at(&history, GROUP, false, 1), 130);
+        // My review was of an older diff, so the new diff asks again.
+        assert_eq!(review_requested_at(&history, ME, true, 1), 150);
+
+        let mut rerequested = history.to_vec();
+        rerequested.push(transaction("request-review", 170, json!({})));
+        assert_eq!(review_requested_at(&rerequested, ME, false, 1), 170);
+
+        // Never added (e.g. added when the revision was created).
+        assert_eq!(
+            review_requested_at(&history, "PHID-USER-nobody", false, 99),
+            99
+        );
+
+        // Removing someone isn't asking them.
+        let removed = [transaction(
+            "reviewers",
+            200,
+            json!({ "operations": [{ "operation": "remove", "phid": ME }] }),
+        )];
+        assert_eq!(review_requested_at(&removed, ME, false, 7), 7);
+    }
+
+    #[test]
+    fn finds_when_a_revision_was_accepted() {
+        let history = [
+            transaction("accept", 100, json!({})),
+            transaction(
+                "status",
+                100,
+                json!({ "old": "needs-review", "new": "accepted" }),
+            ),
+            transaction("update", 150, json!({})),
+            transaction(
+                "status",
+                150,
+                json!({ "old": "accepted", "new": "needs-review" }),
+            ),
+            transaction("accept", 200, json!({})),
+            transaction(
+                "status",
+                200,
+                json!({ "old": "needs-review", "new": "accepted" }),
+            ),
+            // A further acceptance that didn't change the status.
+            transaction("accept", 300, json!({})),
+        ];
+        assert_eq!(accepted_at(&history, 1), 200);
+        assert_eq!(accepted_at(&history[..1], 1), 100);
+        assert_eq!(accepted_at(&[], 42), 42);
     }
 
     #[test]

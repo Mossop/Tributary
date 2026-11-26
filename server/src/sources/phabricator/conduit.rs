@@ -127,6 +127,15 @@ impl Conduit {
         Ok(results)
     }
 
+    /// A revision's transactions (its history).
+    pub async fn transactions(&self, revision_id: u64) -> Result<Vec<Transaction>, ConduitError> {
+        self.search(
+            "transaction.search",
+            json!({ "objectIdentifier": format!("D{revision_id}") }),
+        )
+        .await
+    }
+
     pub async fn whoami(&self) -> Result<WhoAmI, ConduitError> {
         let result = self.call("user.whoami", json!({})).await?;
         serde_json::from_value(result).map_err(|error| ConduitError::Unexpected(error.to_string()))
@@ -159,6 +168,9 @@ pub struct RevisionFields {
     pub status: RevisionStatus,
     /// Epoch seconds.
     pub date_modified: i64,
+    /// Epoch seconds.
+    #[serde(default)]
+    pub date_created: i64,
     /// Mozilla's field for the revision's bug, a string or null.
     #[serde(rename = "bugzilla.bug-id", default)]
     pub bug_id: Option<serde_json::Value>,
@@ -187,6 +199,20 @@ pub struct Reviewer {
     #[serde(rename = "reviewerPHID")]
     pub phid: String,
     pub status: String,
+}
+
+/// One change to a revision, e.g. `reviewers` (with `fields.operations`),
+/// `accept`, `request-review`, `update` (a new diff) or `status` (with
+/// `fields.old` and `fields.new`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct Transaction {
+    #[serde(rename = "type", default)]
+    pub kind: Option<String>,
+    /// Epoch seconds.
+    #[serde(rename = "dateCreated")]
+    pub date_created: i64,
+    #[serde(default)]
+    pub fields: Value,
 }
 
 /// A project (e.g. a review group) with its members.

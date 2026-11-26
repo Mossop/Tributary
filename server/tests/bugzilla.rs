@@ -404,3 +404,45 @@ async fn sources_need_something_to_show() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"], "Choose what to show");
 }
+
+#[tokio::test]
+async fn requests_are_due_after_they_were_made() {
+    let bugzilla = MockServer::start().await;
+    let app = start().await;
+    let mut asked = flag(
+        "needinfo",
+        "?",
+        ME,
+        "alice@example.com",
+        "2026-02-06T09:00:00Z",
+    );
+    // Requested on Friday, changed later.
+    asked["modification_date"] = json!("2026-02-10T09:00:00Z");
+    Mock::given(path("/rest/bug"))
+        .and(query_param("f1", "requestees.login_name"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({ "bugs": [bug(1, json!([asked]))] })),
+        )
+        .mount(&bugzilla)
+        .await;
+    mock_whoami(&bugzilla).await;
+    let (_, account) = add_account(&app, &bugzilla, KEY).await;
+    let (status, body) = app
+        .request(
+            Method::POST,
+            "/api/sources",
+            Some(json!({
+                "type": "bugzilla",
+                "name": "Bugs",
+                "contexts": ["default"],
+                "config": { "account": account["id"], "show": "request:needinfo" },
+                "default_due": { "days": 2, "business_days": true },
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    app.refresh("default").await;
+    let items = app.get("/api/contexts/default/items").await;
+    // Friday + 2 business days is Tuesday.
+    assert_eq!(items[0]["due"], "2026-02-10T09:00:00Z");
+}

@@ -83,6 +83,11 @@ async fn add_account(app: &TestApp, conduit: &MockServer, token: &str) -> (Statu
 
 /// Adds the account and a source showing `list`.
 async fn add_source(app: &TestApp, conduit: &MockServer, list: &str) {
+    add_source_with(app, conduit, list, Value::Null).await;
+}
+
+/// Adds the account and a source showing `list` with `default_due`.
+async fn add_source_with(app: &TestApp, conduit: &MockServer, list: &str, default_due: Value) {
     mock_whoami(conduit).await;
     let (status, account) = add_account(app, conduit, "api-token").await;
     assert_eq!(status, StatusCode::CREATED, "{account}");
@@ -95,10 +100,35 @@ async fn add_source(app: &TestApp, conduit: &MockServer, list: &str) {
                 "name": "Phabricator",
                 "contexts": ["default"],
                 "config": { "account": account["id"], "list": list },
+                "default_due": default_due,
             })),
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
+}
+
+/// How many times revisions' histories were fetched.
+async fn history_calls(conduit: &MockServer) -> usize {
+    conduit
+        .received_requests()
+        .await
+        .unwrap()
+        .iter()
+        .filter(|r| r.url.path() == "/api/transaction.search")
+        .count()
+}
+
+/// Mocks a revision's history.
+async fn mock_history(conduit: &MockServer, revision: &'static str, history: Value) {
+    Mock::given(path("/api/transaction.search"))
+        .and(Params(Box::new(move |p| p["objectIdentifier"] == revision)))
+        .respond_with(page(history, None))
+        .mount(conduit)
+        .await;
+}
+
+fn transaction(kind: &str, at: i64, fields: Value) -> Value {
+    json!({ "id": at, "type": kind, "dateCreated": at, "fields": fields })
 }
 
 fn revision(id: u64, author: &str, status: (&str, &str), reviewers: &[(&str, &str)]) -> Value {
@@ -310,6 +340,8 @@ async fn lists_patches_waiting_for_my_review() {
             ("D7".to_string(), json!("D7 · by alice")),
         ]
     );
+    // Without a default due date, histories aren't fetched.
+    assert_eq!(history_calls(&conduit).await, 0);
     let item = &app.get("/api/contexts/default/items").await[0];
     assert_eq!(item["kind"], "patch");
     assert_eq!(item["title"], "Bug 1 - Change 1");
@@ -445,4 +477,114 @@ async fn sources_need_a_list() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(body["error"], "Choose what to show");
+}
+
+/// 2026-02-02 09:00 UTC, a Monday.
+const MONDAY: i64 = 1_770_022_800;
+const HOUR: i64 = 3600;
+
+#[tokio::test]
+async fn reviews_are_due_after_they_were_requested() {
+    let conduit = MockServer::start().await;
+    let app = start().await;
+    Mock::given(path("/api/project.search"))
+        .respond_with(page(
+            json!([{
+                "id": 1,
+                "phid": GROUP,
+                "fields": { "name": "Group reviewers", "slug": "group-reviewers" },
+                "attachments": { "members": { "members": [{ "phid": ME }] } },
+            }]),
+            None,
+        ))
+        .mount(&conduit)
+        .await;
+    let needs_review = ("needs-review", "Needs Review");
+    Mock::given(path("/api/differential.revision.search"))
+        .respond_with(page(
+            json!([
+                revision(1, ALICE, needs_review, &[(ME, "added")]),
+                revision(2, ALICE, needs_review, &[(GROUP, "added")]),
+            ]),
+            None,
+        ))
+        .mount(&conduit)
+        .await;
+    Mock::given(path("/api/user.search"))
+        .respond_with(page(
+            json!([{ "phid": ALICE, "fields": { "username": "alice" } }]),
+            None,
+        ))
+        .mount(&conduit)
+        .await;
+    let added = |phid: &str, at: i64| {
+        transaction(
+            "reviewers",
+            at,
+            json!({ "operations": [{ "operation": "add", "phid": phid, "newStatus": "added" }] }),
+        )
+    };
+    mock_history(&conduit, "D1", json!([added(ME, MONDAY)])).await;
+    mock_history(&conduit, "D2", json!([added(GROUP, MONDAY + 2 * HOUR)])).await;
+
+    add_source_with(
+        &app,
+        &conduit,
+        "review",
+        json!({ "days": 3, "business_days": false }),
+    )
+    .await;
+    app.refresh("default").await;
+    assert_eq!(last_error(&app).await, Value::Null);
+    let items = app.get("/api/contexts/default/items").await;
+    let dues: Vec<(&str, &str)> = items
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| (i["id"].as_str().unwrap(), i["due"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        dues,
+        [
+            ("D1", "2026-02-05T09:00:00Z"),
+            ("D2", "2026-02-05T11:00:00Z")
+        ]
+    );
+}
+
+#[tokio::test]
+async fn landing_is_due_after_acceptance() {
+    let conduit = MockServer::start().await;
+    let app = start().await;
+    Mock::given(path("/api/differential.revision.search"))
+        .respond_with(page(
+            json!([revision(10, ME, ("accepted", "Accepted"), &[])]),
+            None,
+        ))
+        .mount(&conduit)
+        .await;
+    mock_history(
+        &conduit,
+        "D10",
+        json!([
+            transaction("accept", MONDAY - HOUR, json!({})),
+            transaction(
+                "status",
+                MONDAY,
+                json!({ "old": "needs-review", "new": "accepted" })
+            ),
+        ]),
+    )
+    .await;
+
+    add_source_with(
+        &app,
+        &conduit,
+        "land",
+        json!({ "days": 1, "business_days": true }),
+    )
+    .await;
+    app.refresh("default").await;
+    let items = app.get("/api/contexts/default/items").await;
+    assert_eq!(items[0]["due"], "2026-02-03T09:00:00Z");
 }

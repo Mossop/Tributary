@@ -16,6 +16,7 @@ use tracing::{debug, warn};
 
 use crate::activity::Activity;
 use crate::db;
+use crate::due::DefaultDue;
 use crate::events::{Event, Events};
 use crate::sources::Source;
 
@@ -46,6 +47,8 @@ pub struct Schedule {
     pub source_id: String,
     pub interval: Duration,
     pub idle_interval: Duration,
+    /// Given to items without a due date.
+    pub default_due: Option<DefaultDue>,
 }
 
 /// Spawns the polling task for a source.
@@ -67,7 +70,10 @@ pub fn spawn(
                 waiters.extend(request);
             }
 
-            let result = fetch(id, source.as_ref()).await;
+            let mut result = fetch(id, source.as_ref()).await;
+            if let (Ok(items), Some(default_due)) = (&mut result, schedule.default_due) {
+                apply_default_due(items, default_due);
+            }
             // The source was removed or replaced while fetching; don't store
             // stale results.
             if rx.is_closed() {
@@ -95,6 +101,17 @@ pub fn spawn(
     });
 
     SourceHandle { tx }
+}
+
+/// Gives items without a due date one counted from their `due_from`.
+fn apply_default_due(items: &mut [crate::sources::SourceItem], default_due: DefaultDue) {
+    for item in items {
+        if item.due.is_none()
+            && let Some(from) = item.due_from
+        {
+            item.due = Some(default_due.from(from));
+        }
+    }
 }
 
 async fn fetch(id: &str, source: &dyn Source) -> Result<Vec<crate::sources::SourceItem>, String> {

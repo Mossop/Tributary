@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{FromRow, SqlitePool};
 
+use crate::due::DefaultDue;
 use crate::sources::ItemKind;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
@@ -34,6 +35,8 @@ pub struct SourceRecord {
     pub contexts: Vec<String>,
     /// Settings specific to the source type.
     pub config: Value,
+    /// The due date given to items that don't have one.
+    pub default_due: Option<DefaultDue>,
 }
 
 pub async fn list_contexts(pool: &SqlitePool) -> sqlx::Result<Vec<Context>> {
@@ -143,6 +146,8 @@ struct SourceRow {
     name: String,
     config: String,
     contexts: Option<String>,
+    due_days: Option<u32>,
+    due_business_days: bool,
 }
 
 impl From<SourceRow> for SourceRecord {
@@ -156,6 +161,10 @@ impl From<SourceRow> for SourceRecord {
                 .and_then(|c| serde_json::from_str(&c).ok())
                 .unwrap_or_default(),
             config: serde_json::from_str(&row.config).unwrap_or(Value::Null),
+            default_due: row.due_days.map(|days| DefaultDue {
+                days,
+                business_days: row.due_business_days,
+            }),
         }
     }
 }
@@ -164,7 +173,7 @@ macro_rules! select_sources {
     ($rest:literal) => {
         concat!(
             r#"
-            SELECT s.id, s.type, s.name, s.config,
+            SELECT s.id, s.type, s.name, s.config, s.due_days, s.due_business_days,
                    (SELECT json_group_array(sc.context_id) FROM source_contexts sc
                     WHERE sc.source_id = s.id) AS contexts
             FROM sources s
@@ -204,18 +213,22 @@ pub async fn save_source(pool: &SqlitePool, source: &SourceRecord) -> sqlx::Resu
     let mut tx = pool.begin().await?;
     sqlx::query(
         r#"
-        INSERT INTO sources (id, type, name, config)
-        VALUES (?1, ?2, ?3, ?4)
+        INSERT INTO sources (id, type, name, config, due_days, due_business_days)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
         ON CONFLICT (id) DO UPDATE SET
             type = excluded.type,
             name = excluded.name,
-            config = excluded.config
+            config = excluded.config,
+            due_days = excluded.due_days,
+            due_business_days = excluded.due_business_days
         "#,
     )
     .bind(&source.id)
     .bind(&source.kind)
     .bind(&source.name)
     .bind(source.config.to_string())
+    .bind(source.default_due.map(|d| d.days))
+    .bind(source.default_due.is_some_and(|d| d.business_days))
     .execute(&mut *tx)
     .await?;
     sqlx::query("DELETE FROM source_contexts WHERE source_id = ?1")
@@ -273,6 +286,7 @@ mod tests {
             name: format!("Source {id}"),
             contexts: contexts.iter().map(|c| c.to_string()).collect(),
             config: json!({ "x": 1 }),
+            default_due: None,
         }
     }
 

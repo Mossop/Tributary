@@ -85,6 +85,7 @@ pub fn source_type() -> SourceType {
             Ok(Arc::new(BugzillaSource::new(context, account, show)?))
         },
     )
+    .with_default_due("after the request was made (requests)")
     .with_options(|_, config, context| {
         Box::pin(async move {
             let mut flags = vec![NEEDINFO.to_string()];
@@ -170,6 +171,7 @@ fn item(client: &Bugzilla, bug: &Bug, description: String) -> SourceItem {
         description: Some(description),
         due: None,
         actions: Vec::new(),
+        due_from: None,
         references: vec![references::bugzilla(bug.id)],
     }
 }
@@ -273,6 +275,8 @@ async fn requests(
         if let Some(asked) = matching.iter().map(|(f, _)| f.modification_date).max() {
             item.modified = asked;
         }
+        // A default due date counts from the oldest request.
+        item.due_from = matching.iter().map(|(f, _)| f.creation_date).min();
         items.push(item);
     }
     Ok(items)
@@ -314,6 +318,7 @@ mod tests {
             status: status.into(),
             setter: None,
             requestee: requestee.map(Into::into),
+            creation_date: chrono::DateTime::UNIX_EPOCH,
             modification_date: chrono::DateTime::UNIX_EPOCH,
         };
         let me = "me@example.com";

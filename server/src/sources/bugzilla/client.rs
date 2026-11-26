@@ -189,6 +189,7 @@ pub struct Flag {
     pub setter: Option<String>,
     #[serde(default)]
     pub requestee: Option<String>,
+    pub creation_date: DateTime<Utc>,
     pub modification_date: DateTime<Utc>,
 }
 

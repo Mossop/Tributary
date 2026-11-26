@@ -88,6 +88,11 @@ pub struct SourceItem {
     /// Quick actions offered for this item, performed by [`Source::perform`].
     #[serde(default)]
     pub actions: Vec<QuickAction>,
+    /// The time a default due date counts from (e.g. when a review was
+    /// requested), for sources whose settings give one. Ignored when `due`
+    /// is set.
+    #[serde(default)]
+    pub due_from: Option<DateTime<Utc>>,
     /// Identifiers of what the item is about, including itself, e.g.
     /// `bugzilla:123`, `phab:D456` or `github:owner/repo:7` (see
     /// [`references`]). Items sharing any are grouped in the dashboard.
@@ -173,6 +178,9 @@ pub struct FieldOption {
 #[derive(Clone)]
 pub struct SourceContext {
     pub accounts: Arc<Accounts>,
+    /// The source has a default due date, so items should set `due_from`.
+    /// Sources can skip work needed only for that otherwise.
+    pub wants_due_from: bool,
 }
 
 type BuildFn = dyn Fn(&Value, &SourceContext) -> anyhow::Result<Arc<dyn Source>> + Send + Sync;
@@ -193,6 +201,9 @@ pub struct SourceType {
     pub fields: Vec<Field>,
     /// OAuth scopes needed from the accounts of each provider.
     pub scopes: Vec<(&'static str, &'static str)>,
+    /// What items' `due_from` is, e.g. "after the request was made", for
+    /// types offering a default due date.
+    pub default_due: Option<&'static str>,
     build: Arc<BuildFn>,
     options: Option<Arc<OptionsFn>>,
 }
@@ -213,6 +224,7 @@ impl SourceType {
             listed: true,
             fields,
             scopes: Vec::new(),
+            default_due: None,
             build: Arc::new(build),
             options: None,
         }
@@ -220,6 +232,13 @@ impl SourceType {
 
     pub fn unlisted(mut self) -> Self {
         self.listed = false;
+        self
+    }
+
+    /// Offers a default due date, counted from items' `due_from`, which is
+    /// `description` (e.g. "after the request was made").
+    pub fn with_default_due(mut self, description: &'static str) -> Self {
+        self.default_due = Some(description);
         self
     }
 
@@ -409,6 +428,7 @@ mod tests {
         let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
         SourceContext {
             accounts: Arc::new(Accounts::new(pool, None, crate::events::channel())),
+            wants_due_from: false,
         }
     }
 

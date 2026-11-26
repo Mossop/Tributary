@@ -34,6 +34,7 @@ export interface Source {
   config: Record<string, unknown>;
   /** Keys of secret settings that have a value. */
   secrets_set: string[];
+  default_due: DefaultDue | null;
   status: SourceStatus;
 }
 
@@ -88,6 +89,16 @@ export interface SourceType {
   id: string;
   name: string;
   fields: Field[];
+  /** What a default due date counts from, e.g. "after the request was
+   * made", for types offering one. */
+  default_due?: string;
+}
+
+/** A due date given to a source's items that don't have one. */
+export interface DefaultDue {
+  days: number;
+  /** Count only Monday to Friday. */
+  business_days: boolean;
 }
 
 /** The settings sent when creating or updating a source. */
@@ -97,6 +108,7 @@ export interface SourceSettings {
   name: string;
   contexts: string[];
   config: Record<string, unknown>;
+  default_due?: DefaultDue | null;
 }
 
 /** Something that can be done to an item from the dashboard. */

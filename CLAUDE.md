@@ -40,6 +40,8 @@ frontend in `frontend/`. See README.md for features and configuration.
   one per schema change and never edit existing ones. Timestamps are epoch
   milliseconds. Query functions take `now` explicitly. Sorting lives in
   `list_items`.
+- `due.rs` — default due dates (`DefaultDue`, business-day arithmetic). The
+  scheduler gives items without `due` one counted from their `due_from`.
 - `scheduler.rs` — one polling task per source; `SourceHandle` forces
   refreshes; dropping all handles stops the task (results of an in-flight
   fetch are discarded).

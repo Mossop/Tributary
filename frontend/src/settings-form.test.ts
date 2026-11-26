@@ -62,6 +62,8 @@ describe("initialValues", () => {
       name: "",
       contexts: ["work"],
       fields: {},
+      dueDays: "",
+      businessDays: false,
     });
     expect(initialValues(null, null).contexts).toEqual([]);
   });
@@ -76,6 +78,8 @@ describe("initialValues", () => {
       name: "PRs",
       contexts: ["work", "home"],
       fields: { query: "is:pr", api_url: "" },
+      dueDays: "",
+      businessDays: false,
     });
   });
 });
@@ -85,6 +89,8 @@ describe("sourceSettings", () => {
     name: " PRs ",
     contexts: ["work"],
     fields: { query: " is:pr ", token: "", api_url: "", stray: "x" },
+    dueDays: "",
+    businessDays: false,
   };
 
   it("builds settings for a new source", () => {
@@ -177,6 +183,8 @@ describe("accounts", () => {
       name: "Tasks",
       contexts: ["work"],
       fields: { account: "a", list: "*" },
+      dueDays: "",
+      businessDays: false,
     };
     expect(sourceSettings(tasks, values, true).config).toEqual({
       account: "a",
@@ -206,5 +214,49 @@ describe("accounts", () => {
       "Access wasn't granted",
     );
     expect(connectError("")).toBeNull();
+  });
+});
+
+describe("default due dates", () => {
+  let due: SourceType = {
+    ...github,
+    default_due: "after the request was made",
+  };
+
+  it("loads a source's default due date", () => {
+    let source = makeSource({ default_due: { days: 3, business_days: true } });
+    expect(initialValues(source, null)).toMatchObject({
+      dueDays: "3",
+      businessDays: true,
+    });
+    expect(initialValues(makeSource(), null)).toMatchObject({
+      dueDays: "",
+      businessDays: false,
+    });
+    expect(initialValues(null, null)).toMatchObject({ dueDays: "" });
+  });
+
+  it("sends it for types that offer one", () => {
+    let values = {
+      ...initialValues(null, null),
+      dueDays: " 5 ",
+      businessDays: true,
+    };
+    expect(sourceSettings(due, values, true).default_due).toEqual({
+      days: 5,
+      business_days: true,
+    });
+    // Blank means none.
+    expect(
+      sourceSettings(due, { ...values, dueDays: "" }, true).default_due,
+    ).toBeNull();
+    // Not a whole number: sent as 0 for the server to explain.
+    expect(
+      sourceSettings(due, { ...values, dueDays: "2.5" }, true).default_due,
+    ).toEqual({ days: 0, business_days: true });
+    // Types without one don't send it.
+    expect(sourceSettings(github, values, true)).not.toHaveProperty(
+      "default_due",
+    );
   });
 });

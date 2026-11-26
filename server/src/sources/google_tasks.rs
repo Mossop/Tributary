@@ -158,6 +158,7 @@ impl Task {
                 icon: "symbol:check_circle".to_string(),
                 url: None,
             }],
+            due_from: None,
             references: refs,
         }
     }

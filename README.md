@@ -189,6 +189,22 @@ added show "Needs reconnecting" until reconnected.
   were asked. The flags offered are needinfo plus any requested of you
   recently. **Requests: any flag** lists every request of you.
 
+**Default due dates**: GitHub, Phabricator and Bugzilla sources can give
+items without a due date one, a number of days (optionally business days,
+Monday to Friday in UTC) after:
+
+- GitHub: when your review of a pull request was last requested (or a
+  team's, if not yours).
+- Phabricator: when review was last asked of you or your group (being added,
+  the author requesting review again, or a new diff after you reviewed an
+  older one) for patches to review; when the patch was accepted for patches
+  ready to land.
+- Bugzilla: when the request was made, for requests.
+
+Working these out for GitHub and Phabricator costs a request per item, so
+it's only done when a default due date is set. Your own due date overrides
+still win.
+
 Account tokens and secret source settings are stored in the database in
 plain text. They are never sent back to the browser; leave a secret field
 blank when editing to keep the saved value.
@@ -208,6 +224,11 @@ pub trait Source: Send + Sync {
     async fn perform(&self, item_id: &str, action: &str) -> Result<(), SourceError>;
 }
 ```
+
+To offer a default due date, declare what it counts from with
+`SourceType::with_default_due` and set items' `due_from`;
+`SourceContext::wants_due_from` says whether the source has one set, so
+costly lookups can be skipped otherwise.
 
 Each `SourceItem` has a stable `id`, a `kind` (`ItemKind::Task`, `Issue` or
 `Patch`), `title`, `url`, `modified`, and optional

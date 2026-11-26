@@ -10,6 +10,7 @@ use super::{ApiError, ApiResult, AppState, find_context, find_source};
 use crate::Workspace;
 use crate::accounts;
 use crate::db::{self, SourceStatus};
+use crate::due::DefaultDue;
 use crate::events::Event;
 use crate::settings::{self, Context, SourceRecord};
 use crate::sources::{Field, FieldKind, FieldOption, ItemKind, SourceType};
@@ -131,6 +132,9 @@ pub struct SourceTypeInfo {
     id: String,
     name: String,
     fields: Vec<Field>,
+    /// What a default due date counts from, if the type offers one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_due: Option<&'static str>,
 }
 
 pub async fn list_source_types(State(ws): State<AppState>) -> Json<Vec<SourceTypeInfo>> {
@@ -141,6 +145,7 @@ pub async fn list_source_types(State(ws): State<AppState>) -> Json<Vec<SourceTyp
                 id: t.id.clone(),
                 name: t.name.clone(),
                 fields: t.fields.clone(),
+                default_due: t.default_due,
             })
             .collect(),
     )
@@ -164,7 +169,7 @@ pub async fn field_options(
         .get(&kind)
         .ok_or_else(|| ApiError::NotFound(format!("unknown source type `{kind}`")))?;
     let options = source_type
-        .options(&field, Value::Object(body.config), ws.source_context())
+        .options(&field, Value::Object(body.config), ws.source_context(false))
         .await
         .ok_or_else(|| ApiError::NotFound(format!("unknown select field `{field}`")))?;
     options
@@ -185,6 +190,7 @@ pub struct SourceInfo {
     config: Map<String, Value>,
     /// Keys of the secret settings that have a value.
     secrets_set: Vec<String>,
+    default_due: Option<DefaultDue>,
     status: SourceStatus,
 }
 
@@ -201,6 +207,7 @@ fn source_info(ws: &Workspace, record: SourceRecord, status: SourceStatus) -> So
         contexts: record.contexts,
         config,
         secrets_set,
+        default_due: record.default_due,
         status,
     }
 }
@@ -237,6 +244,30 @@ pub struct SourceBody {
     contexts: Vec<String>,
     #[serde(default)]
     config: Map<String, Value>,
+    /// Absent or null for none.
+    #[serde(default)]
+    default_due: Option<DefaultDue>,
+}
+
+/// Highest number of days a default due date can be.
+const MAX_DUE_DAYS: u32 = 365;
+
+fn validate_default_due(source_type: &SourceType, body: &SourceBody) -> ApiResult<()> {
+    let Some(default_due) = body.default_due else {
+        return Ok(());
+    };
+    if source_type.default_due.is_none() {
+        return Err(ApiError::BadRequest(format!(
+            "{} sources don't have default due dates",
+            source_type.name
+        )));
+    }
+    if !(1..=MAX_DUE_DAYS).contains(&default_due.days) {
+        return Err(ApiError::BadRequest(format!(
+            "The default due date must be between 1 and {MAX_DUE_DAYS} days"
+        )));
+    }
+    Ok(())
 }
 
 /// Validates the settings common to all sources.
@@ -292,8 +323,9 @@ async fn record_from(
     config: Value,
 ) -> ApiResult<SourceRecord> {
     validate_accounts(ws, source_type, &config).await?;
+    validate_default_due(source_type, &body)?;
     source_type
-        .build(&config, &ws.source_context())
+        .build(&config, &ws.source_context(body.default_due.is_some()))
         .map_err(|error| ApiError::BadRequest(format!("{error:#}")))?;
     Ok(SourceRecord {
         id,
@@ -301,6 +333,7 @@ async fn record_from(
         name: body.name.trim().to_string(),
         contexts: body.contexts,
         config,
+        default_due: body.default_due,
     })
 }
 

@@ -1,5 +1,6 @@
 //! Lists GitHub issues and pull requests matching a search query.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Context as _, bail};
@@ -70,6 +71,7 @@ pub fn source_type() -> SourceType {
             Ok(Arc::new(GithubSource::new(context, config)?))
         },
     )
+    .with_default_due("after your review was requested (pull requests)")
 }
 
 /// The API URL to use, given an optional configured one.
@@ -148,6 +150,9 @@ pub struct GithubSource {
     accounts: Arc<Accounts>,
     account: String,
     query: String,
+    /// Work out when reviews of pull requests were requested, which costs a
+    /// call per pull request.
+    due_from: bool,
 }
 
 impl GithubSource {
@@ -157,6 +162,7 @@ impl GithubSource {
             accounts: context.accounts.clone(),
             account: config.account,
             query: config.query,
+            due_from: context.wants_due_from,
         })
     }
 
@@ -191,8 +197,113 @@ impl GithubSource {
             .json()
             .await
             .context("unexpected response from GitHub")?;
-        Ok(body.items.into_iter().map(Issue::into_item).collect())
+
+        let mut items = Vec::new();
+        for issue in body.items {
+            let timeline = match (&issue.pull_request, self.due_from) {
+                (Some(_), true) => Some(
+                    self.timeline(&api_url, &token, &issue.repository_url, issue.number)
+                        .await?,
+                ),
+                _ => None,
+            };
+            let mut item = issue.into_item();
+            if let Some(events) = timeline {
+                item.due_from = review_requested_at(&events, &account.name);
+            }
+            items.push(item);
+        }
+        Ok(items)
     }
+
+    /// The events on an issue or pull request, oldest first. `repository_url`
+    /// is the API URL of its repository.
+    async fn timeline(
+        &self,
+        api_url: &str,
+        token: &str,
+        repository_url: &str,
+        number: u64,
+    ) -> anyhow::Result<Vec<TimelineEvent>> {
+        let repo = repository_url
+            .split_once("/repos/")
+            .map(|(_, repo)| repo)
+            .unwrap_or(repository_url);
+        let mut events = Vec::new();
+        for page in 1..=TIMELINE_PAGES {
+            let response = self
+                .client
+                .get(format!("{api_url}/repos/{repo}/issues/{number}/timeline"))
+                .bearer_auth(token)
+                .query(&[("per_page", "100".to_string()), ("page", page.to_string())])
+                .send()
+                .await?;
+            let status = response.status();
+            if !status.is_success() {
+                bail!("GitHub returned {}", error_message(status, response).await);
+            }
+            let page: Vec<TimelineEvent> = response
+                .json()
+                .await
+                .context("unexpected timeline from GitHub")?;
+            let done = page.len() < 100;
+            events.extend(page);
+            if done {
+                break;
+            }
+        }
+        Ok(events)
+    }
+}
+
+/// Stops runaway paging of very long timelines.
+const TIMELINE_PAGES: usize = 5;
+
+#[derive(Debug, Clone, Deserialize)]
+struct TimelineEvent {
+    #[serde(default)]
+    event: String,
+    #[serde(default)]
+    created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    requested_reviewer: Option<User>,
+    #[serde(default)]
+    requested_team: Option<Team>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct Team {
+    slug: String,
+}
+
+/// When review of a pull request was last asked of `login`, from its
+/// timeline: the latest request of them that wasn't removed since, else the
+/// latest outstanding request of a team.
+fn review_requested_at(events: &[TimelineEvent], login: &str) -> Option<DateTime<Utc>> {
+    let mut mine = None;
+    let mut teams: HashMap<&str, DateTime<Utc>> = HashMap::new();
+    for event in events {
+        let requested = match event.event.as_str() {
+            "review_requested" => true,
+            "review_request_removed" => false,
+            _ => continue,
+        };
+        if let Some(reviewer) = &event.requested_reviewer {
+            if reviewer.login.eq_ignore_ascii_case(login) {
+                mine = if requested { event.created_at } else { None };
+            }
+        } else if let Some(team) = &event.requested_team {
+            match (requested, event.created_at) {
+                (true, Some(at)) => {
+                    teams.insert(team.slug.as_str(), at);
+                }
+                _ => {
+                    teams.remove(team.slug.as_str());
+                }
+            }
+        }
+    }
+    mine.or_else(|| teams.into_values().max())
 }
 
 #[derive(Deserialize)]
@@ -222,7 +333,7 @@ struct PullRequest {
     merged_at: Option<DateTime<Utc>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 struct User {
     login: String,
 }
@@ -301,6 +412,7 @@ impl Issue {
             description: Some(description),
             due: None,
             actions: Vec::new(),
+            due_from: None,
             references: refs,
         }
     }
@@ -373,6 +485,52 @@ mod tests {
             ..issue("open", None)
         };
         assert_eq!(mentioning.into_item().references, ["github:owner/repo:1"]);
+    }
+
+    fn event(kind: &str, at: u32, reviewer: Option<&str>, team: Option<&str>) -> TimelineEvent {
+        TimelineEvent {
+            event: kind.into(),
+            created_at: Some(DateTime::UNIX_EPOCH + chrono::Duration::days(at.into())),
+            requested_reviewer: reviewer.map(|login| User {
+                login: login.into(),
+            }),
+            requested_team: team.map(|slug| Team { slug: slug.into() }),
+        }
+    }
+
+    fn day(at: u32) -> Option<DateTime<Utc>> {
+        Some(DateTime::UNIX_EPOCH + chrono::Duration::days(at.into()))
+    }
+
+    #[test]
+    fn finds_when_review_was_requested() {
+        let events = [
+            event("committed", 1, None, None),
+            event("review_requested", 2, Some("Me"), None),
+            event("review_requested", 3, Some("other"), None),
+            event("reviewed", 4, None, None),
+            event("review_requested", 5, Some("me"), None),
+        ];
+        // The latest request of me, ignoring case.
+        assert_eq!(review_requested_at(&events, "me"), day(5));
+
+        let removed = [
+            event("review_requested", 2, Some("me"), None),
+            event("review_request_removed", 3, Some("me"), None),
+        ];
+        assert_eq!(review_requested_at(&removed, "me"), None);
+
+        // Teams are the fallback.
+        let teams = [
+            event("review_requested", 2, None, Some("a")),
+            event("review_requested", 4, None, Some("b")),
+            event("review_request_removed", 5, None, Some("b")),
+        ];
+        assert_eq!(review_requested_at(&teams, "me"), day(2));
+        let mut both = teams.to_vec();
+        both.push(event("review_requested", 1, Some("me"), None));
+        assert_eq!(review_requested_at(&both, "me"), day(1));
+        assert_eq!(review_requested_at(&[], "me"), None);
     }
 
     #[test]
