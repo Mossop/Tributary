@@ -39,6 +39,8 @@ pub struct GoogleConfig {
     pub userinfo_url: String,
     #[serde(default = "default_google_tasks_api_url")]
     pub tasks_api_url: String,
+    #[serde(default = "default_google_gmail_api_url")]
+    pub gmail_api_url: String,
 }
 
 fn default_google_auth_url() -> String {
@@ -55,6 +57,10 @@ fn default_google_userinfo_url() -> String {
 
 fn default_google_tasks_api_url() -> String {
     "https://tasks.googleapis.com/tasks/v1".to_string()
+}
+
+fn default_google_gmail_api_url() -> String {
+    "https://gmail.googleapis.com/gmail/v1".to_string()
 }
 
 /// How often sources are polled. Applies to every source.

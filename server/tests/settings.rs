@@ -234,6 +234,7 @@ async fn lists_offered_source_types() {
         [
             "github",
             "google-tasks",
+            "gmail",
             "phabricator",
             "bugzilla",
             "slack",

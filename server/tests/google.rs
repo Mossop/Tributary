@@ -14,6 +14,7 @@ use common::{TestApp, start, start_with};
 use tributary::{accounts, db};
 
 const TASKS_SCOPE: &str = "https://www.googleapis.com/auth/tasks";
+const GMAIL_SCOPE: &str = "https://www.googleapis.com/auth/gmail.modify";
 
 async fn google_app(google: &MockServer) -> TestApp {
     let uri = google.uri();
@@ -34,6 +35,7 @@ async fn google_app(google: &MockServer) -> TestApp {
             token_url = "{uri}/token"
             userinfo_url = "{uri}/userinfo"
             tasks_api_url = "{uri}/tasks/v1"
+            gmail_api_url = "{uri}/gmail/v1"
             "#
         ),
         db::connect_in_memory().await.unwrap(),
@@ -90,7 +92,7 @@ async fn mock_consent(google: &MockServer, scopes: &str) {
 
 /// Connects an account through the OAuth flow, returning its id.
 async fn connect(app: &TestApp, google: &MockServer) -> String {
-    mock_consent(google, &format!("openid email {TASKS_SCOPE}")).await;
+    mock_consent(google, &format!("openid email {GMAIL_SCOPE} {TASKS_SCOPE}")).await;
     let consent = redirect(app, "/api/accounts/google/connect").await;
     let state = query(&consent, "state").unwrap();
     let back = redirect(
@@ -207,7 +209,7 @@ async fn connect_redirects_to_google() {
     );
     assert_eq!(
         query(&consent, "scope").as_deref(),
-        Some(format!("openid email {TASKS_SCOPE}").as_str())
+        Some(format!("openid email {GMAIL_SCOPE} {TASKS_SCOPE}").as_str())
     );
     assert!(query(&consent, "state").is_some());
 }
@@ -643,4 +645,138 @@ async fn task_fetches(google: &MockServer) -> usize {
         .iter()
         .filter(|r| r.method.as_str() == "GET" && r.url.path() == "/tasks/v1/lists/inbox/tasks")
         .count()
+}
+
+/// Mocks a Gmail search for `is:unread` finding an unread message in the
+/// inbox (`m1`) and a read, archived one (`m2`).
+async fn mock_gmail(google: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/gmail/v1/users/me/messages"))
+        .and(header("authorization", "Bearer access-token"))
+        .and(query_param("q", "is:unread"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [{ "id": "m1", "threadId": "t1" }, { "id": "m2", "threadId": "t2" }],
+            "resultSizeEstimate": 2,
+        })))
+        .mount(google)
+        .await;
+    for (id, labels, subject) in [
+        ("m1", json!(["INBOX", "UNREAD"]), "Please review"),
+        ("m2", json!([]), "Old news"),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(format!("/gmail/v1/users/me/messages/{id}")))
+            .and(query_param("format", "metadata"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id": id,
+                "threadId": format!("t{}", &id[1..]),
+                "labelIds": labels,
+                "snippet": "Hello",
+                "internalDate": "1795694773000",
+                "payload": { "headers": [
+                    { "name": "Subject", "value": subject },
+                    { "name": "From", "value": "Alice <alice@example.com>" },
+                ]},
+            })))
+            .mount(google)
+            .await;
+    }
+}
+
+async fn add_gmail_source(app: &TestApp, account: &str) -> Value {
+    let (status, source) = app
+        .request(
+            Method::POST,
+            "/api/sources",
+            Some(json!({
+                "type": "gmail",
+                "name": "Mail",
+                "contexts": ["default"],
+                "config": { "account": account, "query": "is:unread" },
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{source}");
+    source
+}
+
+#[tokio::test]
+async fn lists_gmail_messages_with_actions() {
+    let google = MockServer::start().await;
+    let app = google_app(&google).await;
+    let id = connect(&app, &google).await;
+    mock_refresh(&google).await;
+    mock_gmail(&google).await;
+    add_gmail_source(&app, &id).await;
+    app.refresh("default").await;
+
+    let items = app.get("/api/contexts/default/items").await;
+    let items: Vec<(&str, &str, &str, Vec<&str>)> = items
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| {
+            (
+                i["id"].as_str().unwrap(),
+                i["title"].as_str().unwrap(),
+                i["url"].as_str().unwrap(),
+                i["actions"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|a| a["id"].as_str().unwrap())
+                    .collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        items,
+        [
+            (
+                "m1",
+                "Please review",
+                "https://mail.google.com/mail/?authuser=me%40example.com#all/t1",
+                vec!["mark-read", "archive"]
+            ),
+            (
+                "m2",
+                "Old news",
+                "https://mail.google.com/mail/?authuser=me%40example.com#all/t2",
+                vec![]
+            ),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn marks_messages_read_and_archives_them() {
+    let google = MockServer::start().await;
+    let app = google_app(&google).await;
+    let id = connect(&app, &google).await;
+    mock_refresh(&google).await;
+    mock_gmail(&google).await;
+    for label in ["UNREAD", "INBOX"] {
+        Mock::given(method("POST"))
+            .and(path("/gmail/v1/users/me/messages/m1/modify"))
+            .and(header("authorization", "Bearer access-token"))
+            .and(body_json(json!({ "removeLabelIds": [label] })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "id": "m1" })))
+            .expect(1)
+            .mount(&google)
+            .await;
+    }
+    let source = add_gmail_source(&app, &id).await;
+    app.refresh("default").await;
+
+    let source = source["id"].as_str().unwrap();
+    for action in ["mark-read", "archive"] {
+        let (status, body) = app
+            .request(
+                Method::POST,
+                &format!("/api/items/{source}/m1/actions/{action}"),
+                None,
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{action}: {body}");
+    }
 }

@@ -32,6 +32,7 @@ use crate::due::DueFrom;
 
 pub mod bugzilla;
 pub mod github;
+pub mod gmail;
 pub mod google_tasks;
 pub mod phabricator;
 pub mod references;
@@ -402,6 +403,7 @@ impl Registry {
         let mut registry = Self::default();
         registry.register(github::source_type());
         registry.register(google_tasks::source_type());
+        registry.register(gmail::source_type());
         registry.register(phabricator::source_type());
         registry.register(bugzilla::source_type());
         registry.register(slack::source_type());

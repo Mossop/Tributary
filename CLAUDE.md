@@ -21,7 +21,8 @@ frontend in `frontend/`. See README.md for features and configuration.
   `config` for type specific settings.
 - `sources/mod.rs` — the `Source` trait, `SourceType` (field schema + build
   fn, secret handling, OAuth scopes, select options fn) and `Registry`.
-  `sources/github.rs`, `sources/google_tasks.rs`, `sources/phabricator/`
+  `sources/github.rs`, `sources/google_tasks.rs`, `sources/gmail.rs`,
+  `sources/phabricator/`
   (`conduit.rs` is the Conduit client; the review rules are in
   `review_reason`), `sources/bugzilla/` (`client.rs` is the REST client),
   `sources/slack/` (Slack's MCP tools through a gateway such as Runlayer;
@@ -100,6 +101,7 @@ frontend in `frontend/`. See README.md for features and configuration.
 - Creating items is deliberately not implemented yet. Quick actions exist
   (`SourceItem.actions`, `Source::perform`, `POST
   /api/items/{source}/{item}/actions/{action}`, which refreshes the source
-  before responding); Google Tasks "complete" is the only one so far.
+  before responding): Google Tasks "complete", Gmail "mark-read" and
+  "archive", and Phabricator's "Open in Lando" link.
 - Sources do not have configurable icons; a source defines its icon and items
   may optionally override it.

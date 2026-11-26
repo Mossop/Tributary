@@ -31,7 +31,7 @@ list, so you can see everything you need to do in one place.
   first run there is a single "Default" context, which you can rename.
 
 Currently available source types: GitHub (issue/PR search), Google Tasks,
-Phabricator (patches to review, to work on and ready to land), Bugzilla
+Gmail (message search), Phabricator (patches to review, to work on and ready to land), Bugzilla
 (bugs assigned to you, or with flags requested of you) and Slack (saved
 messages or to-dos, through an MCP gateway).
 There is also a stub type with fixed items, used for tests and not offered in
@@ -150,7 +150,7 @@ account can be shared by many sources. To allow connecting accounts:
 
 1. In the [Google Cloud console](https://console.cloud.google.com/), create a
    project and enable the APIs for the sources you'll use (the Google Tasks
-   API).
+   API and the Gmail API).
 2. Configure the OAuth consent screen, adding yourself as a test user while
    the app is in testing.
 3. Create an OAuth client ID of type "Web application" with the authorised
@@ -180,6 +180,16 @@ list's name. Google only stores the date of a due time, so tasks are due at
 midday UTC on that date. Tasks have a "Mark complete" quick action, which
 needs read and write access to Google Tasks; accounts connected before it was
 added show "Needs reconnecting" until reconnected.
+
+**Gmail**: a Google account and any Gmail search (e.g. `is:unread
+in:inbox`). Shows up to 100 matching messages, newest first, as tasks. Unread
+messages have a "Mark as read" quick action and messages in the inbox an
+"Archive" one; a message that no longer matches the search after one (e.g.
+`is:unread` after marking it read) drops off the list. Gmail needs
+`gmail.modify` access, which Google treats as a restricted scope: while the
+OAuth app is in testing it works for its test users after an "unverified app"
+warning. Google accounts connected before Gmail was added show "Needs
+reconnecting" until reconnected.
 
 **Phabricator**: a Phabricator account and which patches to show:
 
