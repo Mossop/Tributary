@@ -117,7 +117,7 @@ impl Workspace {
         let built = match self.registry.get(&record.kind) {
             Some(source_type) => source_type.build(
                 &record.config,
-                &self.source_context(record.default_due.is_some()),
+                &self.source_context(due::counts_from_requested(record.default_due)),
             ),
             None => Err(anyhow::anyhow!("unknown source type `{}`", record.kind)),
         };

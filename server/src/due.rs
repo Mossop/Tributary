@@ -1,19 +1,69 @@
-//! Default due dates, counted from a time each item's source reports.
+//! Default due dates, counted from one of the times an item has.
 
 use chrono::{DateTime, Datelike, Duration, Utc, Weekday};
 use serde::{Deserialize, Serialize};
 
-/// A source's default due date: `days` after each item's `due_from`.
+use crate::sources::SourceItem;
+
+/// Which of an item's times a default due date counts from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DueFrom {
+    /// The source specific time, the item's `due_from` (e.g. when a review
+    /// was requested).
+    Requested,
+    Created,
+    Modified,
+}
+
+impl DueFrom {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DueFrom::Requested => "requested",
+            DueFrom::Created => "created",
+            DueFrom::Modified => "modified",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "requested" => Some(DueFrom::Requested),
+            "created" => Some(DueFrom::Created),
+            "modified" => Some(DueFrom::Modified),
+            _ => None,
+        }
+    }
+
+    /// The item's time of this kind, if it has one.
+    pub fn time(self, item: &SourceItem) -> Option<DateTime<Utc>> {
+        match self {
+            DueFrom::Requested => item.due_from,
+            DueFrom::Created => item.created,
+            DueFrom::Modified => Some(item.modified),
+        }
+    }
+}
+
+/// Whether items need their requested time (`due_from`) for `default_due`.
+pub fn counts_from_requested(default_due: Option<DefaultDue>) -> bool {
+    default_due.is_some_and(|d| d.from == DueFrom::Requested)
+}
+
+/// A source's default due date: `days` after each item's `from` time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DefaultDue {
     pub days: u32,
     /// Count only Monday to Friday.
     pub business_days: bool,
+    pub from: DueFrom,
 }
 
 impl DefaultDue {
-    pub fn from(&self, from: DateTime<Utc>) -> DateTime<Utc> {
-        add_days(from, self.days, self.business_days)
+    /// The due date for `item`, if it has the time this counts from.
+    pub fn due(&self, item: &SourceItem) -> Option<DateTime<Utc>> {
+        self.from
+            .time(item)
+            .map(|time| add_days(time, self.days, self.business_days))
     }
 }
 

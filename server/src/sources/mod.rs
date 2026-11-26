@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::accounts::Accounts;
+use crate::due::DueFrom;
 
 pub mod bugzilla;
 pub mod github;
@@ -81,6 +82,10 @@ pub struct SourceItem {
     #[serde(default)]
     pub icon: Option<String>,
     pub modified: DateTime<Utc>,
+    /// When the item was created, if the source knows. Only used to count
+    /// default due dates from.
+    #[serde(default)]
+    pub created: Option<DateTime<Utc>>,
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
@@ -88,9 +93,9 @@ pub struct SourceItem {
     /// Quick actions offered for this item, performed by [`Source::perform`].
     #[serde(default)]
     pub actions: Vec<QuickAction>,
-    /// The time a default due date counts from (e.g. when a review was
-    /// requested), for sources whose settings give one. Ignored when `due`
-    /// is set.
+    /// The source specific time a default due date can count from (e.g.
+    /// when a review was requested), set when
+    /// [`SourceContext::wants_due_from`]. Ignored when `due` is set.
     #[serde(default)]
     pub due_from: Option<DateTime<Utc>>,
     /// Identifiers of what the item is about, including itself, e.g.
@@ -178,7 +183,8 @@ pub struct FieldOption {
 #[derive(Clone)]
 pub struct SourceContext {
     pub accounts: Arc<Accounts>,
-    /// The source has a default due date, so items should set `due_from`.
+    /// The source has a default due date counting from the requested time,
+    /// so items should set `due_from`.
     /// Sources can skip work needed only for that otherwise.
     pub wants_due_from: bool,
 }
@@ -201,9 +207,11 @@ pub struct SourceType {
     pub fields: Vec<Field>,
     /// OAuth scopes needed from the accounts of each provider.
     pub scopes: Vec<(&'static str, &'static str)>,
-    /// What items' `due_from` is, e.g. "after the request was made", for
-    /// types offering a default due date.
-    pub default_due: Option<&'static str>,
+    /// Describes items' `due_from`, e.g. "Request made", for types that set
+    /// it, offering it as a time default due dates count from.
+    pub requested: Option<&'static str>,
+    /// Whether items have a `created` time.
+    pub has_created: bool,
     build: Arc<BuildFn>,
     options: Option<Arc<OptionsFn>>,
 }
@@ -224,7 +232,8 @@ impl SourceType {
             listed: true,
             fields,
             scopes: Vec::new(),
-            default_due: None,
+            requested: None,
+            has_created: true,
             build: Arc::new(build),
             options: None,
         }
@@ -235,11 +244,30 @@ impl SourceType {
         self
     }
 
-    /// Offers a default due date, counted from items' `due_from`, which is
-    /// `description` (e.g. "after the request was made").
-    pub fn with_default_due(mut self, description: &'static str) -> Self {
-        self.default_due = Some(description);
+    /// Items set `due_from`, which is `description` (e.g. "Request made").
+    pub fn with_requested(mut self, description: &'static str) -> Self {
+        self.requested = Some(description);
         self
+    }
+
+    /// Items don't have a `created` time.
+    pub fn without_created(mut self) -> Self {
+        self.has_created = false;
+        self
+    }
+
+    /// The times default due dates can count from, the default first, with
+    /// their labels.
+    pub fn due_from_choices(&self) -> Vec<(DueFrom, &'static str)> {
+        let mut choices = Vec::new();
+        if let Some(requested) = self.requested {
+            choices.push((DueFrom::Requested, requested));
+        }
+        if self.has_created {
+            choices.push((DueFrom::Created, "Created"));
+        }
+        choices.push((DueFrom::Modified, "Last modified"));
+        choices
     }
 
     /// Declares an OAuth scope needed from `provider` accounts.

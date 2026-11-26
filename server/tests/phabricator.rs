@@ -531,7 +531,7 @@ async fn reviews_are_due_after_they_were_requested() {
         &app,
         &conduit,
         "review",
-        json!({ "days": 3, "business_days": false }),
+        json!({ "days": 3, "business_days": false, "from": "requested" }),
     )
     .await;
     app.refresh("default").await;
@@ -581,10 +581,36 @@ async fn landing_is_due_after_acceptance() {
         &app,
         &conduit,
         "land",
-        json!({ "days": 1, "business_days": true }),
+        json!({ "days": 1, "business_days": true, "from": "requested" }),
     )
     .await;
     app.refresh("default").await;
     let items = app.get("/api/contexts/default/items").await;
     assert_eq!(items[0]["due"], "2026-02-03T09:00:00Z");
+}
+
+#[tokio::test]
+async fn patches_can_be_due_after_they_were_created() {
+    let conduit = MockServer::start().await;
+    let app = start().await;
+    let mut created = revision(10, ME, ("needs-revision", "Changes Planned"), &[]);
+    created["fields"]["dateCreated"] = json!(MONDAY);
+    Mock::given(path("/api/differential.revision.search"))
+        .respond_with(page(json!([created]), None))
+        .mount(&conduit)
+        .await;
+
+    add_source_with(
+        &app,
+        &conduit,
+        "work",
+        json!({ "days": 2, "business_days": false, "from": "created" }),
+    )
+    .await;
+    app.refresh("default").await;
+    assert_eq!(last_error(&app).await, Value::Null);
+    let items = app.get("/api/contexts/default/items").await;
+    assert_eq!(items[0]["due"], "2026-02-04T09:00:00Z");
+    // Histories are only needed for the requested time.
+    assert_eq!(history_calls(&conduit).await, 0);
 }

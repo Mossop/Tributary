@@ -10,7 +10,7 @@ use super::{ApiError, ApiResult, AppState, find_context, find_source};
 use crate::Workspace;
 use crate::accounts;
 use crate::db::{self, SourceStatus};
-use crate::due::DefaultDue;
+use crate::due::{self, DefaultDue};
 use crate::events::Event;
 use crate::settings::{self, Context, SourceRecord};
 use crate::sources::{Field, FieldKind, FieldOption, ItemKind, SourceType};
@@ -132,9 +132,8 @@ pub struct SourceTypeInfo {
     id: String,
     name: String,
     fields: Vec<Field>,
-    /// What a default due date counts from, if the type offers one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    default_due: Option<&'static str>,
+    /// The times a default due date can count from, the default first.
+    due_from: Vec<FieldOption>,
 }
 
 pub async fn list_source_types(State(ws): State<AppState>) -> Json<Vec<SourceTypeInfo>> {
@@ -145,7 +144,14 @@ pub async fn list_source_types(State(ws): State<AppState>) -> Json<Vec<SourceTyp
                 id: t.id.clone(),
                 name: t.name.clone(),
                 fields: t.fields.clone(),
-                default_due: t.default_due,
+                due_from: t
+                    .due_from_choices()
+                    .into_iter()
+                    .map(|(from, label)| FieldOption {
+                        value: from.as_str().to_string(),
+                        label: label.to_string(),
+                    })
+                    .collect(),
             })
             .collect(),
     )
@@ -256,10 +262,15 @@ fn validate_default_due(source_type: &SourceType, body: &SourceBody) -> ApiResul
     let Some(default_due) = body.default_due else {
         return Ok(());
     };
-    if source_type.default_due.is_none() {
+    if !source_type
+        .due_from_choices()
+        .iter()
+        .any(|(from, _)| *from == default_due.from)
+    {
         return Err(ApiError::BadRequest(format!(
-            "{} sources don't have default due dates",
-            source_type.name
+            "{} sources can't count default due dates from `{}`",
+            source_type.name,
+            default_due.from.as_str()
         )));
     }
     if !(1..=MAX_DUE_DAYS).contains(&default_due.days) {
@@ -325,7 +336,10 @@ async fn record_from(
     validate_accounts(ws, source_type, &config).await?;
     validate_default_due(source_type, &body)?;
     source_type
-        .build(&config, &ws.source_context(body.default_due.is_some()))
+        .build(
+            &config,
+            &ws.source_context(due::counts_from_requested(body.default_due)),
+        )
         .map_err(|error| ApiError::BadRequest(format!("{error:#}")))?;
     Ok(SourceRecord {
         id,

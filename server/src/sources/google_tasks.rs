@@ -58,6 +58,7 @@ pub fn source_type() -> SourceType {
         },
     )
     .with_scope(GOOGLE, SCOPE)
+    .without_created()
     .with_options(|_, config, context| {
         Box::pin(async move {
             let Some(account) = config.get("account").and_then(Value::as_str) else {
@@ -144,6 +145,8 @@ impl Task {
             url: self.web_view_link.unwrap_or_else(|| TASKS_URL.to_string()),
             icon: None,
             modified: self.updated,
+            // The Tasks API doesn't say when tasks were created.
+            created: None,
             description,
             // Google only keeps the date of a due time. Midday UTC is that
             // date in practically every time zone.
@@ -349,6 +352,15 @@ mod tests {
 
     fn task(json: Value) -> Task {
         serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn default_due_dates_count_from_modified_only() {
+        // Google doesn't say when tasks were created.
+        assert_eq!(
+            source_type().due_from_choices(),
+            [(crate::due::DueFrom::Modified, "Last modified")]
+        );
     }
 
     #[test]

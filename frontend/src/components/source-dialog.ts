@@ -22,6 +22,7 @@ import {
   type SourceFormValues,
   accountsFor,
   defaultAccounts,
+  dueFrom,
   initialValues,
   sourceSettings,
 } from "../settings-form.ts";
@@ -234,16 +235,17 @@ export class SourceDialog extends LitElement {
     </wa-select>`;
   }
 
-  /** For types that can count a default due date from something. */
+  /** A due date for items that don't have one, counted from one of their
+   * times. */
   private renderDefaultDue() {
-    let from = this.type?.default_due;
-    if (!from) {
+    let type = this.type;
+    if (!type) {
       return nothing;
     }
     return html`<div class="due">
       <wa-input
         label="Default due date (days)"
-        hint="Counted ${from}. Leave empty for none."
+        hint="Leave empty for none."
         type="number"
         min="1"
         max="365"
@@ -251,6 +253,17 @@ export class SourceDialog extends LitElement {
         @input=${(e: Event) =>
           this.set({ dueDays: (e.target as HTMLInputElement).value })}
       ></wa-input>
+      <wa-select
+        label="Count from"
+        .value=${dueFrom(type, this.values)}
+        @change=${(e: Event) =>
+          this.set({ dueFrom: (e.target as HTMLInputElement).value })}
+      >
+        ${type.due_from.map(
+          (choice) =>
+            html`<wa-option value=${choice.value}>${choice.label}</wa-option>`,
+        )}
+      </wa-select>
       <wa-checkbox
         .checked=${this.values.businessDays}
         @change=${(e: Event) =>

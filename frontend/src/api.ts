@@ -89,9 +89,8 @@ export interface SourceType {
   id: string;
   name: string;
   fields: Field[];
-  /** What a default due date counts from, e.g. "after the request was
-   * made", for types offering one. */
-  default_due?: string;
+  /** The times a default due date can count from, the default first. */
+  due_from: FieldOption[];
 }
 
 /** A due date given to a source's items that don't have one. */
@@ -99,6 +98,9 @@ export interface DefaultDue {
   days: number;
   /** Count only Monday to Friday. */
   business_days: boolean;
+  /** Which of the item's times it counts from, a `SourceType.due_from`
+   * value. */
+  from: string;
 }
 
 /** The settings sent when creating or updating a source. */

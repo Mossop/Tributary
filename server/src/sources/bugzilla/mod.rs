@@ -85,7 +85,7 @@ pub fn source_type() -> SourceType {
             Ok(Arc::new(BugzillaSource::new(context, account, show)?))
         },
     )
-    .with_default_due("after the request was made (requests)")
+    .with_requested("Request made (requests)")
     .with_options(|_, config, context| {
         Box::pin(async move {
             let mut flags = vec![NEEDINFO.to_string()];
@@ -168,6 +168,7 @@ fn item(client: &Bugzilla, bug: &Bug, description: String) -> SourceItem {
         url: client.bug_url(bug.id),
         icon: None,
         modified: bug.last_change_time,
+        created: bug.creation_time,
         description: Some(description),
         due: None,
         actions: Vec::new(),
@@ -186,7 +187,7 @@ async fn assigned(client: &Bugzilla, me: &str) -> Result<Vec<SourceItem>, Bugzil
             ("status", "__open__".to_string()),
             (
                 "include_fields",
-                "id,summary,status,product,component,last_change_time".to_string(),
+                "id,summary,status,product,component,creation_time,last_change_time".to_string(),
             ),
         ])
         .await?;
@@ -221,7 +222,7 @@ async fn requests(
         ("v1", me.to_string()),
         (
             "include_fields",
-            "id,summary,status,product,component,last_change_time,flags".to_string(),
+            "id,summary,status,product,component,creation_time,last_change_time,flags".to_string(),
         ),
     ];
     if let Some(flag) = flag {

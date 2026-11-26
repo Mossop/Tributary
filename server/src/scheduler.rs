@@ -103,13 +103,12 @@ pub fn spawn(
     SourceHandle { tx }
 }
 
-/// Gives items without a due date one counted from their `due_from`.
+/// Gives items without a due date one counted from the time `default_due`
+/// says.
 fn apply_default_due(items: &mut [crate::sources::SourceItem], default_due: DefaultDue) {
     for item in items {
-        if item.due.is_none()
-            && let Some(from) = item.due_from
-        {
-            item.due = Some(default_due.from(from));
+        if item.due.is_none() {
+            item.due = default_due.due(item);
         }
     }
 }

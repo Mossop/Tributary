@@ -5,6 +5,7 @@ import {
   accountsFor,
   connectError,
   defaultAccounts,
+  dueFrom,
   initialValues,
   slugify,
   sourceSettings,
@@ -15,6 +16,7 @@ import { makeSource } from "./test-helpers.ts";
 let github: SourceType = {
   id: "github",
   name: "GitHub search",
+  due_from: [{ value: "modified", label: "Last modified" }],
   fields: [
     {
       key: "query",
@@ -64,6 +66,7 @@ describe("initialValues", () => {
       fields: {},
       dueDays: "",
       businessDays: false,
+      dueFrom: "",
     });
     expect(initialValues(null, null).contexts).toEqual([]);
   });
@@ -80,6 +83,7 @@ describe("initialValues", () => {
       fields: { query: "is:pr", api_url: "" },
       dueDays: "",
       businessDays: false,
+      dueFrom: "",
     });
   });
 });
@@ -91,6 +95,7 @@ describe("sourceSettings", () => {
     fields: { query: " is:pr ", token: "", api_url: "", stray: "x" },
     dueDays: "",
     businessDays: false,
+    dueFrom: "",
   };
 
   it("builds settings for a new source", () => {
@@ -99,6 +104,7 @@ describe("sourceSettings", () => {
       name: "PRs",
       contexts: ["work"],
       config: { query: "is:pr" },
+      default_due: null,
     });
   });
 
@@ -113,11 +119,17 @@ describe("sourceSettings", () => {
   });
 });
 
-let githubType: SourceType = { id: "github", name: "GitHub", fields: [] };
+let githubType: SourceType = {
+  id: "github",
+  name: "GitHub",
+  fields: [],
+  due_from: [],
+};
 
 let tasks: SourceType = {
   id: "google-tasks",
   name: "Google Tasks",
+  due_from: [{ value: "modified", label: "Last modified" }],
   fields: [
     {
       key: "account",
@@ -185,6 +197,7 @@ describe("accounts", () => {
       fields: { account: "a", list: "*" },
       dueDays: "",
       businessDays: false,
+      dueFrom: "",
     };
     expect(sourceSettings(tasks, values, true).config).toEqual({
       account: "a",
@@ -220,23 +233,40 @@ describe("accounts", () => {
 describe("default due dates", () => {
   let due: SourceType = {
     ...github,
-    default_due: "after the request was made",
+    due_from: [
+      { value: "requested", label: "Request made" },
+      { value: "created", label: "Created" },
+      { value: "modified", label: "Last modified" },
+    ],
   };
 
   it("loads a source's default due date", () => {
-    let source = makeSource({ default_due: { days: 3, business_days: true } });
+    let source = makeSource({
+      default_due: { days: 3, business_days: true, from: "created" },
+    });
     expect(initialValues(source, null)).toMatchObject({
       dueDays: "3",
       businessDays: true,
+      dueFrom: "created",
     });
     expect(initialValues(makeSource(), null)).toMatchObject({
       dueDays: "",
       businessDays: false,
+      dueFrom: "",
     });
-    expect(initialValues(null, null)).toMatchObject({ dueDays: "" });
+    expect(initialValues(null, null)).toMatchObject({
+      dueDays: "",
+      dueFrom: "",
+    });
   });
 
-  it("sends it for types that offer one", () => {
+  it("counts from the type's first time unless one is chosen", () => {
+    let values = initialValues(null, null);
+    expect(dueFrom(due, values)).toBe("requested");
+    expect(dueFrom(due, { ...values, dueFrom: "modified" })).toBe("modified");
+  });
+
+  it("sends it", () => {
     let values = {
       ...initialValues(null, null),
       dueDays: " 5 ",
@@ -245,7 +275,11 @@ describe("default due dates", () => {
     expect(sourceSettings(due, values, true).default_due).toEqual({
       days: 5,
       business_days: true,
+      from: "requested",
     });
+    expect(
+      sourceSettings(due, { ...values, dueFrom: "created" }, true).default_due,
+    ).toEqual({ days: 5, business_days: true, from: "created" });
     // Blank means none.
     expect(
       sourceSettings(due, { ...values, dueDays: "" }, true).default_due,
@@ -253,10 +287,6 @@ describe("default due dates", () => {
     // Not a whole number: sent as 0 for the server to explain.
     expect(
       sourceSettings(due, { ...values, dueDays: "2.5" }, true).default_due,
-    ).toEqual({ days: 0, business_days: true });
-    // Types without one don't send it.
-    expect(sourceSettings(github, values, true)).not.toHaveProperty(
-      "default_due",
-    );
+    ).toEqual({ days: 0, business_days: true, from: "requested" });
   });
 });

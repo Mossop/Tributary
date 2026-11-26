@@ -367,7 +367,7 @@ async fn reviews_are_due_after_they_were_requested() {
         &app,
         &github,
         "is:open",
-        json!({ "days": 2, "business_days": false }),
+        json!({ "days": 2, "business_days": false, "from": "requested" }),
     )
     .await;
     app.refresh("default").await;
@@ -388,4 +388,45 @@ async fn reviews_are_due_after_they_were_requested() {
         .find(|i| i["id"] == "owner/repo#3")
         .unwrap();
     assert_eq!(issue["due"], Value::Null);
+}
+
+#[tokio::test]
+async fn items_can_be_due_after_they_were_created() {
+    let github = MockServer::start().await;
+    let app = start().await;
+    Mock::given(method("GET"))
+        .and(path("/search/issues"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "items": [{
+            "number": 12,
+            "title": "Fix the thing",
+            "html_url": "https://github.com/owner/repo/pull/12",
+            "repository_url": "https://api.github.com/repos/owner/repo",
+            "created_at": "2026-02-27T08:00:00Z",
+            "updated_at": "2026-03-04T05:06:07Z",
+            "user": { "login": "bob" },
+            "state": "open",
+            "pull_request": { "merged_at": null },
+        }]})))
+        .mount(&github)
+        .await;
+    // Review requests aren't needed.
+    Mock::given(method("GET"))
+        .and(path("/repos/owner/repo/issues/12/timeline"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .expect(0)
+        .mount(&github)
+        .await;
+
+    add_source_with(
+        &app,
+        &github,
+        "is:open",
+        json!({ "days": 1, "business_days": true, "from": "created" }),
+    )
+    .await;
+    app.refresh("default").await;
+    assert_eq!(last_error(&app).await, Value::Null);
+    let items = app.get("/api/contexts/default/items").await;
+    // Friday + 1 business day.
+    assert_eq!(items[0]["due"], "2026-03-02T08:00:00Z");
 }

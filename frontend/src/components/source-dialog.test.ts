@@ -24,6 +24,7 @@ import "./source-dialog.ts";
 let tasks: SourceType = {
   id: "google-tasks",
   name: "Google Tasks",
+  due_from: [{ value: "modified", label: "Last modified" }],
   fields: [
     {
       key: "account",
@@ -108,15 +109,17 @@ describe("source-dialog", () => {
     });
   });
 
-  it("offers a default due date only for types that count one", async () => {
-    let { waDialog } = await open();
-    expect(waDialog.querySelector("wa-input[type='number']")).toBeNull();
-
-    document.body.replaceChildren();
+  it("offers a default due date counted from the type's times", async () => {
     let dialog = document.createElement("source-dialog") as SourceDialog;
     document.body.append(dialog);
     dialog.show(
-      { ...tasks, default_due: "after the request was made" },
+      {
+        ...tasks,
+        due_from: [
+          { value: "requested", label: "Request made" },
+          { value: "modified", label: "Last modified" },
+        ],
+      },
       null,
       [],
       [],
@@ -124,9 +127,16 @@ describe("source-dialog", () => {
       async () => {},
     );
     await dialog.updateComplete;
-    let input = dialog.shadowRoot!.querySelector("wa-input[type='number']")!;
-    expect(input.getAttribute("hint")).toBe(
-      "Counted after the request was made. Leave empty for none.",
-    );
+    let root = dialog.shadowRoot!;
+    let input = root.querySelector("wa-input[type='number']")!;
+    expect(input.getAttribute("hint")).toBe("Leave empty for none.");
+    let select = root.querySelector<HTMLSelectElement>(
+      "wa-select[label='Count from']",
+    )!;
+    // The first time is the default.
+    expect(select.value).toBe("requested");
+    expect(
+      [...select.querySelectorAll("wa-option")].map((o) => o.textContent),
+    ).toEqual(["Request made", "Last modified"]);
   });
 });

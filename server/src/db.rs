@@ -369,6 +369,7 @@ mod tests {
             url: format!("https://example.com/{id}"),
             icon: None,
             modified: time(modified),
+            created: None,
             description: None,
             due: due.map(time),
             actions: Vec::new(),

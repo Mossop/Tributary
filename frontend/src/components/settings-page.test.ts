@@ -43,6 +43,7 @@ let account: Account = {
 let tasks: SourceType = {
   id: "google-tasks",
   name: "Google Tasks",
+  due_from: [{ value: "modified", label: "Last modified" }],
   fields: [
     {
       key: "account",

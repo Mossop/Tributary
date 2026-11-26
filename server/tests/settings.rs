@@ -457,12 +457,16 @@ async fn add_due_source(
 #[tokio::test]
 async fn default_due_dates_count_from_items() {
     let app = start().await;
-    let (status, body) =
-        add_due_source(&app, "d", json!({ "days": 3, "business_days": false })).await;
+    let (status, body) = add_due_source(
+        &app,
+        "d",
+        json!({ "days": 3, "business_days": false, "from": "requested" }),
+    )
+    .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
     assert_eq!(
         body["default_due"],
-        json!({ "days": 3, "business_days": false })
+        json!({ "days": 3, "business_days": false, "from": "requested" })
     );
     let id = body["id"].as_str().unwrap().to_string();
 
@@ -505,7 +509,7 @@ async fn default_due_dates_count_from_items() {
                 "name": "Due",
                 "contexts": ["default"],
                 "config": { "key": "d" },
-                "default_due": { "days": 1, "business_days": true },
+                "default_due": { "days": 1, "business_days": true, "from": "requested" },
             })),
         )
         .await;
@@ -542,7 +546,12 @@ async fn default_due_dates_count_from_items() {
 #[tokio::test]
 async fn overrides_beat_default_due_dates() {
     let app = start().await;
-    add_due_source(&app, "d", json!({ "days": 3, "business_days": false })).await;
+    add_due_source(
+        &app,
+        "d",
+        json!({ "days": 3, "business_days": false, "from": "requested" }),
+    )
+    .await;
     let mut counted = item("1", 1, None);
     counted.due_from = Some(time(5));
     app.source("d").set_items(vec![counted]);
@@ -569,8 +578,12 @@ async fn overrides_beat_default_due_dates() {
 async fn validates_default_due_dates() {
     let app = start().await;
     for days in [0, 366] {
-        let (status, body) =
-            add_due_source(&app, "d", json!({ "days": days, "business_days": false })).await;
+        let (status, body) = add_due_source(
+            &app,
+            "d",
+            json!({ "days": days, "business_days": false, "from": "requested" }),
+        )
+        .await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert_eq!(
             body["error"],
@@ -586,12 +599,15 @@ async fn validates_default_due_dates() {
                 "name": "Stub",
                 "contexts": ["default"],
                 "config": {},
-                "default_due": { "days": 1, "business_days": false },
+                "default_due": { "days": 1, "business_days": false, "from": "requested" },
             })),
         )
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert_eq!(body["error"], "Stub sources don't have default due dates");
+    assert_eq!(
+        body["error"],
+        "Stub sources can't count default due dates from `requested`"
+    );
 
     let types = app.get("/api/source-types").await;
     let test = types
@@ -600,5 +616,71 @@ async fn validates_default_due_dates() {
         .iter()
         .find(|t| t["id"] == "test")
         .unwrap();
-    assert_eq!(test["default_due"], "after testing");
+    assert_eq!(
+        test["due_from"],
+        json!([
+            { "value": "requested", "label": "Tested" },
+            { "value": "created", "label": "Created" },
+            { "value": "modified", "label": "Last modified" },
+        ])
+    );
+}
+
+#[tokio::test]
+async fn default_due_dates_count_from_the_chosen_time() {
+    let app = start().await;
+    let (status, body) = add_due_source(
+        &app,
+        "d",
+        json!({ "days": 2, "business_days": false, "from": "created" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["default_due"]["from"], "created");
+    let id = body["id"].as_str().unwrap().to_string();
+
+    let mut created = item("created", 9, None);
+    created.created = Some(time(3));
+    created.due_from = Some(time(5));
+    // Without a creation time there's no default due date.
+    let unknown = item("unknown", 8, None);
+    app.source("d").set_items(vec![created, unknown]);
+    app.refresh("default").await;
+    let dues = |items: Value| -> Vec<(String, Value)> {
+        items
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| (i["id"].as_str().unwrap().to_string(), i["due"].clone()))
+            .collect()
+    };
+    assert_eq!(
+        dues(app.get("/api/contexts/default/items").await),
+        [
+            ("created".to_string(), json!("2026-01-05T00:00:00Z")),
+            ("unknown".to_string(), Value::Null),
+        ]
+    );
+
+    let (status, body) = app
+        .request(
+            Method::PUT,
+            &format!("/api/sources/{id}"),
+            Some(json!({
+                "name": "Due",
+                "contexts": ["default"],
+                "config": { "key": "d" },
+                "default_due": { "days": 2, "business_days": false, "from": "modified" },
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    app.refresh("default").await;
+    assert_eq!(
+        dues(app.get("/api/contexts/default/items").await),
+        [
+            ("unknown".to_string(), json!("2026-01-10T00:00:00Z")),
+            ("created".to_string(), json!("2026-01-11T00:00:00Z")),
+        ]
+    );
 }

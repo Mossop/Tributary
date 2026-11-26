@@ -104,6 +104,7 @@ pub fn item(id: &str, modified: u32, due: Option<u32>) -> SourceItem {
         url: format!("https://example.com/{id}"),
         icon: None,
         modified: time(modified),
+        created: None,
         description: None,
         due: due.map(time),
         actions: Vec::new(),
@@ -165,7 +166,7 @@ fn test_source_type(sources: TestSources) -> SourceType {
             Ok(source as Arc<dyn Source>)
         },
     )
-    .with_default_due("after testing")
+    .with_requested("Tested")
 }
 
 pub struct TestApp {

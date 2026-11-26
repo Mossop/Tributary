@@ -176,6 +176,8 @@ pub struct Bug {
     pub product: String,
     #[serde(default)]
     pub component: String,
+    #[serde(default)]
+    pub creation_time: Option<DateTime<Utc>>,
     pub last_change_time: DateTime<Utc>,
     #[serde(default)]
     pub flags: Vec<Flag>,

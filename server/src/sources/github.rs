@@ -71,7 +71,7 @@ pub fn source_type() -> SourceType {
             Ok(Arc::new(GithubSource::new(context, config)?))
         },
     )
-    .with_default_due("after your review was requested (pull requests)")
+    .with_requested("Review requested (pull requests)")
 }
 
 /// The API URL to use, given an optional configured one.
@@ -318,6 +318,8 @@ struct Issue {
     html_url: String,
     repository_url: String,
     updated_at: DateTime<Utc>,
+    #[serde(default)]
+    created_at: Option<DateTime<Utc>>,
     user: Option<User>,
     state: String,
     state_reason: Option<String>,
@@ -409,6 +411,7 @@ impl Issue {
             url: self.html_url,
             icon: Some(icon),
             modified: self.updated_at,
+            created: self.created_at,
             description: Some(description),
             due: None,
             actions: Vec::new(),
@@ -442,6 +445,7 @@ mod tests {
             html_url: "https://github.com/owner/repo/issues/1".into(),
             repository_url: "https://api.github.com/repos/owner/repo".into(),
             updated_at: DateTime::UNIX_EPOCH,
+            created_at: None,
             user: None,
             state: state.into(),
             state_reason: state_reason.map(Into::into),

@@ -436,7 +436,7 @@ async fn requests_are_due_after_they_were_made() {
                 "name": "Bugs",
                 "contexts": ["default"],
                 "config": { "account": account["id"], "show": "request:needinfo" },
-                "default_due": { "days": 2, "business_days": true },
+                "default_due": { "days": 2, "business_days": true, "from": "requested" },
             })),
         )
         .await;
@@ -445,4 +445,40 @@ async fn requests_are_due_after_they_were_made() {
     let items = app.get("/api/contexts/default/items").await;
     // Friday + 2 business days is Tuesday.
     assert_eq!(items[0]["due"], "2026-02-10T09:00:00Z");
+}
+
+#[tokio::test]
+async fn bugs_can_be_due_after_they_were_created() {
+    let bugzilla = MockServer::start().await;
+    let app = start().await;
+    let mut created = bug(1, json!([]));
+    created["creation_time"] = json!("2026-02-03T12:00:00Z");
+    Mock::given(path("/rest/bug"))
+        .and(query_param("f1", "assigned_to"))
+        .and(query_param(
+            "include_fields",
+            "id,summary,status,product,component,creation_time,last_change_time",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "bugs": [created] })))
+        .mount(&bugzilla)
+        .await;
+    mock_whoami(&bugzilla).await;
+    let (_, account) = add_account(&app, &bugzilla, KEY).await;
+    let (status, body) = app
+        .request(
+            Method::POST,
+            "/api/sources",
+            Some(json!({
+                "type": "bugzilla",
+                "name": "Bugs",
+                "contexts": ["default"],
+                "config": { "account": account["id"], "show": "assigned" },
+                "default_due": { "days": 7, "business_days": false, "from": "created" },
+            })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    app.refresh("default").await;
+    let items = app.get("/api/contexts/default/items").await;
+    assert_eq!(items[0]["due"], "2026-02-10T12:00:00Z");
 }

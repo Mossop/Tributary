@@ -11,7 +11,7 @@ let contexts: Context[] = [
 ];
 
 let sourceTypes: SourceType[] = [
-  { id: "github", name: "GitHub search", fields: [] },
+  { id: "github", name: "GitHub search", fields: [], due_from: [] },
 ];
 
 let accounts: Account[] = [

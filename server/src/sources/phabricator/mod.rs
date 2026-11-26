@@ -90,9 +90,7 @@ pub fn source_type() -> SourceType {
             Ok(Arc::new(PhabricatorSource::new(context, config)?))
         },
     )
-    .with_default_due(
-        "after the review was requested (patches to review) or the patch was accepted (ready to land)",
-    )
+    .with_requested("Review requested or patch accepted")
     .with_options(|_, _, _| {
         Box::pin(async {
             Ok(List::ALL
@@ -227,6 +225,7 @@ fn item(revision: &Revision, description: String) -> SourceItem {
         url: revision.fields.uri.clone(),
         icon: None,
         modified: DateTime::from_timestamp(revision.fields.date_modified, 0).unwrap_or_default(),
+        created: DateTime::from_timestamp(revision.fields.date_created, 0),
         description: Some(description),
         due: None,
         actions: Vec::new(),

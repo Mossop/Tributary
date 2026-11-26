@@ -189,21 +189,25 @@ added show "Needs reconnecting" until reconnected.
   were asked. The flags offered are needinfo plus any requested of you
   recently. **Requests: any flag** lists every request of you.
 
-**Default due dates**: GitHub, Phabricator and Bugzilla sources can give
-items without a due date one, a number of days (optionally business days,
-Monday to Friday in UTC) after:
+**Default due dates**: any source can give items without a due date one, a
+number of days (optionally business days, Monday to Friday in UTC) after
+one of the item's times, chosen in the source's settings:
 
-- GitHub: when your review of a pull request was last requested (or a
-  team's, if not yours).
-- Phabricator: when review was last asked of you or your group (being added,
-  the author requesting review again, or a new diff after you reviewed an
-  older one) for patches to review; when the patch was accepted for patches
-  ready to land.
-- Bugzilla: when the request was made, for requests.
+- **Created** or **Last modified**. Google Tasks doesn't say when tasks were
+  created, so it only offers Last modified.
+- **Requested**, for some sources:
+  - GitHub: when your review of a pull request was last requested (or a
+    team's, if not yours).
+  - Phabricator: when review was last asked of you or your group (being
+    added, the author requesting review again, or a new diff after you
+    reviewed an older one) for patches to review; when the patch was
+    accepted for patches ready to land.
+  - Bugzilla: when the request was made, for requests.
 
-Working these out for GitHub and Phabricator costs a request per item, so
-it's only done when a default due date is set. Your own due date overrides
-still win.
+Items without the chosen time (e.g. GitHub issues when counting from
+Requested) get no default due date. Working out the requested time for
+GitHub and Phabricator costs a request per item, so it's only done when
+counting from it. Your own due date overrides still win.
 
 Account tokens and secret source settings are stored in the database in
 plain text. They are never sent back to the browser; leave a secret field
@@ -225,13 +229,15 @@ pub trait Source: Send + Sync {
 }
 ```
 
-To offer a default due date, declare what it counts from with
-`SourceType::with_default_due` and set items' `due_from`;
-`SourceContext::wants_due_from` says whether the source has one set, so
-costly lookups can be skipped otherwise.
+Default due dates can count from items' `created` and `modified` times
+(declare `SourceType::without_created` if items never have a `created`).
+To also offer a source specific time, describe it with
+`SourceType::with_requested` and set items' `due_from`;
+`SourceContext::wants_due_from` says whether a default due date counts from
+it, so costly lookups can be skipped otherwise.
 
 Each `SourceItem` has a stable `id`, a `kind` (`ItemKind::Task`, `Issue` or
-`Patch`), `title`, `url`, `modified`, and optional
+`Patch`), `title`, `url`, `modified`, and optional `created`,
 `description`, `due`, `icon` (used instead of the source's icon) and
 `actions`. Each quick action has an `id` passed to `perform`, a `label` and
 an `icon`; the dashboard refreshes the source after performing one. A quick
