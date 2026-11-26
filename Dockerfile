@@ -5,7 +5,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci
 COPY frontend/ ./
 RUN npm run build
 
-FROM rust:1.96-slim-bookworm AS server
+FROM rust:1.100-slim-bookworm AS server
 WORKDIR /build/server
 COPY server/ ./
 # The registry and target directory are kept in BuildKit cache mounts so
