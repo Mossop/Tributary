@@ -272,7 +272,7 @@ export class ItemRow extends LitElement {
       </wa-button>`;
     }
 
-    let presets = snoozePresets(this.now);
+    let presets = snoozePresets(this.now, effectiveDue(this.item));
     let onSnooze = (event: CustomEvent<{ item: { value: string } }>) => {
       let value = event.detail.item.value;
       if (value == "custom") {

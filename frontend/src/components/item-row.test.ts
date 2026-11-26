@@ -137,6 +137,39 @@ describe("item-row", () => {
     expect((actions[2] as { until: Date }).until.getHours()).toBe(9);
   });
 
+  it("offers snoozing until before the due date", async () => {
+    // Midday UTC: the 20th in practically every time zone.
+    let item = makeItem({ due_override: "2026-01-20T12:00:00Z" });
+    let row = await render({ item });
+    let actions: ItemAction[] = [];
+    row.addEventListener("item-action", (e) => actions.push(e.detail));
+
+    let menu = row.shadowRoot!.querySelector(
+      "wa-button[title='Snooze']",
+    )!.parentElement!;
+    let items = [...menu.querySelectorAll("wa-dropdown-item")];
+    let dayBefore = items.find((i) =>
+      i.textContent!.includes("One day before due"),
+    )!;
+    expect(
+      items.some((i) => i.textContent!.includes("One week before due")),
+    ).toBe(true);
+
+    menu.dispatchEvent(
+      new CustomEvent("wa-select", {
+        detail: { item: { value: dayBefore.getAttribute("value") } },
+      }),
+    );
+    // A fixed time: 8am local time the day before the due date.
+    expect(actions).toEqual([
+      {
+        action: "snooze",
+        item,
+        until: new Date(2026, 0, 19, 8, 0),
+      },
+    ]);
+  });
+
   it("fires due date actions from the menu", async () => {
     let item = makeItem();
     let row = await render({ item });

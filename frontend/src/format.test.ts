@@ -158,6 +158,34 @@ describe("snoozePresets", () => {
     ]);
   });
 
+  it("offers a day and a week before a due date, in date order", () => {
+    let wednesday = new Date(2026, 0, 7, 14, 30);
+    let due = new Date(2026, 0, 20, 17, 0);
+    expect(described(snoozePresets(wednesday, due))).toEqual([
+      "Tomorrow 1/8 9:00",
+      "This weekend 1/10 9:00",
+      "Next week 1/12 9:00",
+      "One week before due 1/13 8:00",
+      "One day before due 1/19 8:00",
+      "Next month 2/1 9:00",
+    ]);
+  });
+
+  it("leaves out times before the due date that have passed", () => {
+    let wednesday = new Date(2026, 0, 7, 14, 30);
+    let labels = (due: Date) =>
+      snoozePresets(wednesday, due).map((preset) => preset.label);
+    // A week before has passed.
+    expect(labels(new Date(2026, 0, 10, 9, 0))).toContain("One day before due");
+    expect(labels(new Date(2026, 0, 10, 9, 0))).not.toContain(
+      "One week before due",
+    );
+    // Both have passed, e.g. when overdue.
+    let overdue = labels(new Date(2026, 0, 8, 9, 0));
+    expect(overdue).not.toContain("One day before due");
+    expect(overdue).not.toContain("One week before due");
+  });
+
   it("goes to the following Monday on a Monday", () => {
     let monday = new Date(2026, 0, 12, 8, 0);
     expect(described(snoozePresets(monday))).toContain("Next week 1/19 9:00");

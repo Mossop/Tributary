@@ -79,17 +79,49 @@ export function datePresets(now: Date, nextMonth: boolean): DatePreset[] {
     let first = new Date(now.getFullYear(), now.getMonth() + 1, 1, 9);
     presets.push({ label: "Next month", date: first });
   }
+  return inDateOrder(presets);
+}
 
-  presets.sort((a, b) => a.date.getTime() - b.date.getTime());
-  return presets.filter(
+/** `presets` in date order, leaving out any with the same date as an
+ * earlier one. */
+function inDateOrder(presets: DatePreset[]): DatePreset[] {
+  let sorted = [...presets].sort((a, b) => a.date.getTime() - b.date.getTime());
+  return sorted.filter(
     (preset, index) =>
-      index == 0 || preset.date.getTime() != presets[index - 1].date.getTime(),
+      index == 0 || preset.date.getTime() != sorted[index - 1].date.getTime(),
   );
 }
 
-/** Times to snooze until. */
-export function snoozePresets(now: Date): DatePreset[] {
-  return datePresets(now, true);
+/** 8am local time, `days` days before `date`'s date. */
+function daysBefore(date: Date, days: number): Date {
+  let before = new Date(date);
+  before.setDate(before.getDate() - days);
+  before.setHours(8, 0, 0, 0);
+  return before;
+}
+
+/**
+ * Times to snooze until. For an item `due`, these include 8am a day and a
+ * week before it, when those are still to come. They're fixed times: moving
+ * the due date afterwards doesn't move the snooze.
+ */
+export function snoozePresets(
+  now: Date,
+  due: Date | null = null,
+): DatePreset[] {
+  let presets = datePresets(now, true);
+  if (due) {
+    for (let [label, days] of [
+      ["One day before due", 1],
+      ["One week before due", 7],
+    ] as const) {
+      let date = daysBefore(due, days);
+      if (date > now) {
+        presets.push({ label, date });
+      }
+    }
+  }
+  return inDateOrder(presets);
 }
 
 /** Dates to set as due. */
