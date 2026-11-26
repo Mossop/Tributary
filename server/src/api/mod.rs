@@ -73,6 +73,10 @@ pub fn router(workspace: AppState) -> Router {
             put(items::set_due).delete(items::clear_due),
         )
         .route(
+            "/items/{source}/{item}/queue",
+            put(items::queue_item).delete(items::unqueue_item),
+        )
+        .route(
             "/items/{source}/{item}/actions/{action}",
             post(items::perform_action),
         )

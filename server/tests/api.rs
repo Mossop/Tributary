@@ -76,6 +76,7 @@ async fn items_are_filtered_by_context_and_sorted() {
             "modified": "2026-01-01T00:00:00Z",
             "due": "2026-01-10T00:00:00Z",
             "due_override": null,
+            "queued_for": null,
             "snoozed_until": null,
             "snoozed_forever": false,
             "actions": [],
@@ -234,6 +235,30 @@ async fn due_override() {
     let (status, _) = app.request(Method::DELETE, &path, None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert_eq!(app.ids("/api/contexts/home/items").await, ["b/1", "b/2"]);
+}
+
+#[tokio::test]
+async fn queue_and_unqueue() {
+    let app = setup().await;
+    app.source("b").set_items(vec![item("1", 1, None)]);
+    app.refresh("home").await;
+
+    let path = item_path(&app, "b", "1", "queue");
+    let (status, _) = app
+        .request(
+            Method::PUT,
+            &path,
+            Some(json!({ "day": "2026-01-05T08:00:00Z" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let items = app.get("/api/contexts/home/items").await;
+    assert_eq!(items[0]["queued_for"], "2026-01-05T08:00:00Z");
+
+    let (status, _) = app.request(Method::DELETE, &path, None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let items = app.get("/api/contexts/home/items").await;
+    assert!(items[0]["queued_for"].is_null());
 }
 
 #[tokio::test]

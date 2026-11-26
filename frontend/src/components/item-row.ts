@@ -1,5 +1,6 @@
 import { LitElement, type TemplateResult, css, html, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
+import { live } from "lit/directives/live.js";
 import "@awesome.me/webawesome/dist/components/button/button.js";
 import "@awesome.me/webawesome/dist/components/dropdown/dropdown.js";
 import "@awesome.me/webawesome/dist/components/dropdown-item/dropdown-item.js";
@@ -18,6 +19,7 @@ import {
   snoozePresets,
 } from "../format.ts";
 import { parseIcon } from "../icons.ts";
+import { isQueuedLater, isToday, startOfDay } from "../queue.ts";
 
 export type ItemAction =
   | { action: "snooze"; item: Item; until: Date | null }
@@ -26,6 +28,9 @@ export type ItemAction =
   | { action: "due"; item: Item; due: Date }
   | { action: "due-custom"; item: Item }
   | { action: "clear-due"; item: Item }
+  /** Queue for the day starting at `day`, or with null take out of the
+   * queue. */
+  | { action: "queue"; item: Item; day: Date | null }
   | { action: "quick"; item: Item; id: string };
 
 /** Fired (bubbling, composed) when the user picks an action for an item. */
@@ -261,6 +266,35 @@ export class ItemRow extends LitElement {
     </wa-button>`;
   }
 
+  /** The menu queueing the item for today or tomorrow. Choosing the one
+   * it's queued for takes it out of the queue. */
+  private renderQueueMenu() {
+    let today = isToday(this.item, this.now);
+    let later = isQueuedLater(this.item, this.now);
+    let onSelect = (event: CustomEvent<{ item: { value: string } }>) => {
+      let tomorrow = event.detail.item.value == "tomorrow";
+      let queued = tomorrow ? later : today;
+      this.fire({
+        action: "queue",
+        item: this.item,
+        day: queued ? null : startOfDay(this.now, tomorrow ? 1 : 0),
+      });
+    };
+    return html`<wa-dropdown placement="bottom-end" @wa-select=${onSelect}>
+      <wa-button slot="trigger" appearance="plain" title="Queue">
+        <wa-icon name="today" label="Queue"></wa-icon>
+      </wa-button>
+      <!-- Choosing a checkbox item ticks it, and rows are reused for other
+        items, so always set the live state. -->
+      <wa-dropdown-item value="today" type="checkbox" .checked=${live(today)}
+        >Today</wa-dropdown-item
+      >
+      <wa-dropdown-item value="tomorrow" type="checkbox" .checked=${live(later)}
+        >Tomorrow</wa-dropdown-item
+      >
+    </wa-dropdown>`;
+  }
+
   private renderActions() {
     if (this.snoozed) {
       return html`<wa-button
@@ -290,6 +324,7 @@ export class ItemRow extends LitElement {
 
     return html`
       ${this.item.actions.map((action) => this.renderQuickAction(action))}
+      ${this.renderQueueMenu()}
       <wa-dropdown placement="bottom-end" @wa-select=${onSnooze}>
         <wa-button slot="trigger" appearance="plain" title="Snooze">
           <wa-icon name="snooze" label="Snooze"></wa-icon>
@@ -347,6 +382,11 @@ export class ItemRow extends LitElement {
             >Updated ${relativeTime(modified, this.now)}</span
           >
           ${this.renderDue()}
+          ${
+            isQueuedLater(this.item, this.now)
+              ? html`<span>Queued for tomorrow</span>`
+              : nothing
+          }
           ${this.snoozed ? this.renderSnoozedUntil() : nothing}
         </div>
       </div>

@@ -1,5 +1,6 @@
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, query, state } from "lit/decorators.js";
+import { repeat } from "lit/directives/repeat.js";
 import "@awesome.me/webawesome/dist/components/badge/badge.js";
 import "@awesome.me/webawesome/dist/components/button/button.js";
 import "@awesome.me/webawesome/dist/components/callout/callout.js";
@@ -11,6 +12,7 @@ import "@awesome.me/webawesome/dist/components/spinner/spinner.js";
 import type { Item } from "../api.ts";
 import { type Route, parseRoute, routeUrl } from "../route.ts";
 import { groupItems } from "../groups.ts";
+import { splitToday } from "../queue.ts";
 import { ITEM_KINDS, visibleItems } from "../kinds.ts";
 import { Store, type State, itemKey } from "../store.ts";
 import type { DateDialog } from "./date-dialog.ts";
@@ -70,16 +72,31 @@ export class AppShell extends LitElement {
       pointer-events: none;
     }
 
-    .list {
+    /* The filter bar and lists, each a card of its own. */
+    .cards {
+      display: flex;
+      flex-direction: column;
+      gap: var(--wa-space-m);
+    }
+
+    .card {
       background: var(--wa-color-surface-default);
       border-radius: var(--wa-border-radius-l);
       box-shadow: var(--wa-shadow-s);
       overflow: hidden;
     }
 
-    .group,
-    .list > .empty {
+    .card > .group + .group,
+    .card > h3 + .group {
       border-top: var(--wa-border-width-s) solid var(--wa-color-surface-border);
+    }
+
+    /* A list's title, when there's more than one list. */
+    .card > h3 {
+      margin: 0;
+      padding: var(--wa-space-s) var(--wa-space-m);
+      font-size: var(--wa-font-size-m);
+      font-weight: var(--wa-font-weight-semibold);
     }
 
     .kinds {
@@ -178,6 +195,9 @@ export class AppShell extends LitElement {
         break;
       case "clear-due":
         await this.store.clearDue(item);
+        break;
+      case "queue":
+        await this.store.queue(item, detail.day);
         break;
       case "quick":
         await this.store.performAction(item, detail.id);
@@ -338,7 +358,7 @@ export class AppShell extends LitElement {
   /** Buttons showing and hiding each kind of item. */
   private renderKinds() {
     let hidden = this.store.hiddenKinds();
-    return html`<div class="kinds">
+    return html`<div class="card kinds">
       ${ITEM_KINDS.map(({ kind, label, icon }) => {
         let shown = !hidden.includes(kind);
         let title = `${shown ? "Hide" : "Show"} ${label.toLowerCase()}`;
@@ -373,13 +393,13 @@ export class AppShell extends LitElement {
     }
     let shown = visibleItems(items, this.store.hiddenKinds());
     if (items.length > 0 && shown.length == 0) {
-      return html`<div class="empty">
+      return html`<div class="card empty">
         Everything here is hidden by the filters above.
       </div>`;
     }
     if (items.length == 0) {
       if (!snoozed && this.store.contextSources().length == 0) {
-        return html`<div class="empty">
+        return html`<div class="card empty">
           No sources are shown in this context yet. Add one in
           <a
             href="/settings"
@@ -391,7 +411,7 @@ export class AppShell extends LitElement {
           >.
         </div>`;
       }
-      return html`<div class="empty">
+      return html`<div class="card empty">
         ${snoozed ? "Nothing is snoozed." : "Nothing to do."}
       </div>`;
     }
@@ -407,12 +427,34 @@ export class AppShell extends LitElement {
         ?busy=${this.state.busy.includes(itemKey(item))}
       ></item-row>`;
     // Related items are shown under the group's lead.
-    return groupItems(shown).map(
-      ([lead, ...related]) =>
-        html`<div class="group">
-          ${row(lead, false)} ${related.map((item) => row(item, true))}
-        </div>`,
-    );
+    // Keyed so each item keeps its own row (and its open menus and other
+    // state) when the list changes.
+    let groups = (items: Item[]) =>
+      repeat(
+        groupItems(items),
+        ([lead]) => itemKey(lead),
+        ([lead, ...related]) =>
+          html`<div class="group">
+            ${row(lead, false)}
+            ${repeat(related, itemKey, (item) => row(item, true))}
+          </div>`,
+      );
+    let card = (items: Item[], title: string | null = null) =>
+      html`<div class="card">
+        ${title ? html`<h3>${title}</h3>` : nothing} ${groups(items)}
+      </div>`;
+    if (snoozed) {
+      return card(shown);
+    }
+    // Today's items come first, in a list of their own.
+    let [today, rest] = splitToday(shown, now);
+    if (today.length == 0) {
+      return card(rest);
+    }
+    return html`
+      ${card(today, "Today")}
+      ${rest.length > 0 ? card(rest, "Everything else") : nothing}
+    `;
   }
 
   private renderBody() {
@@ -429,7 +471,7 @@ export class AppShell extends LitElement {
     }
     return html`
       ${route.view == "snoozed" ? html`<h2>Snoozed</h2>` : nothing}
-      <div class="list" @item-action=${this.onItemAction}>
+      <div class="cards" @item-action=${this.onItemAction}>
         ${this.renderKinds()} ${this.renderItems()}
       </div>
     `;

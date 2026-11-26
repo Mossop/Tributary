@@ -32,10 +32,15 @@ async function render(fields: Partial<ItemRow>) {
   return row;
 }
 
+/** The menu opened by the button titled `title`. */
+function menu(row: ItemRow, title: string): Element {
+  return row.shadowRoot!.querySelector(`wa-button[title='${title}']`)!
+    .parentElement!;
+}
+
 /** The due date menu opened by the calendar button. */
 function dueMenu(row: ItemRow): Element {
-  return row.shadowRoot!.querySelector("wa-button[title='Due date']")!
-    .parentElement!;
+  return menu(row, "Due date");
 }
 
 afterEach(() => {
@@ -122,7 +127,7 @@ describe("item-row", () => {
     let actions: ItemAction[] = [];
     row.addEventListener("item-action", (e) => actions.push(e.detail));
 
-    let dropdown = row.shadowRoot!.querySelector("wa-dropdown")!;
+    let dropdown = menu(row, "Snooze");
     let select = (value: string) =>
       dropdown.dispatchEvent(
         new CustomEvent("wa-select", { detail: { item: { value } } }),
@@ -135,6 +140,73 @@ describe("item-row", () => {
     expect(actions[1]).toEqual({ action: "snooze-custom", item });
     expect(actions[2]).toMatchObject({ action: "snooze", item });
     expect((actions[2] as { until: Date }).until.getHours()).toBe(9);
+  });
+
+  it("queues items for today and tomorrow", async () => {
+    let local = new Date(now);
+    let today = new Date(
+      local.getFullYear(),
+      local.getMonth(),
+      local.getDate(),
+    );
+    let tomorrow = new Date(
+      local.getFullYear(),
+      local.getMonth(),
+      local.getDate() + 1,
+    );
+    // Choices for an item queued for `queuedFor`.
+    let choose = async (queuedFor: Date | null) => {
+      let item = makeItem({ queued_for: queuedFor?.toISOString() ?? null });
+      let row = await render({ item });
+      let actions: ItemAction[] = [];
+      row.addEventListener("item-action", (e) => actions.push(e.detail));
+      let queue = menu(row, "Queue");
+      expect(
+        [...queue.querySelectorAll("wa-dropdown-item")].map((i) =>
+          i.textContent!.trim(),
+        ),
+      ).toEqual(["Today", "Tomorrow"]);
+      for (let value of ["today", "tomorrow"]) {
+        queue.dispatchEvent(
+          new CustomEvent("wa-select", { detail: { item: { value } } }),
+        );
+      }
+      return actions.map((a) => (a as { day: Date | null }).day);
+    };
+
+    expect(await choose(null)).toEqual([today, tomorrow]);
+    // Choosing the ticked one takes the item out of the queue.
+    expect(await choose(today)).toEqual([null, tomorrow]);
+    expect(await choose(tomorrow)).toEqual([today, null]);
+  });
+
+  it("shows where an item is queued", async () => {
+    let today = makeItem({ queued_for: "2026-01-01T00:00:00Z" });
+    let row = await render({ item: today });
+    let checked = () =>
+      [...menu(row, "Queue").querySelectorAll("wa-dropdown-item")]
+        .filter((i) => (i as HTMLElement & { checked: boolean }).checked)
+        .map((i) => i.textContent!.trim());
+    expect(checked()).toEqual(["Today"]);
+    expect(row.shadowRoot!.textContent).not.toContain("Queued for tomorrow");
+
+    row = await render({
+      item: makeItem({ queued_for: "2026-01-11T00:00:00Z" }),
+    });
+    expect(checked()).toEqual(["Tomorrow"]);
+    expect(row.shadowRoot!.textContent).toContain("Queued for tomorrow");
+  });
+
+  it("doesn't keep a ticked queue choice when showing another item", async () => {
+    let row = await render({ item: makeItem({ id: "1" }) });
+    // Choosing Today ticks it, then the row is reused for an unqueued item.
+    let today = menu(row, "Queue").querySelector(
+      "wa-dropdown-item",
+    )! as HTMLElement & { checked: boolean };
+    today.checked = true;
+    row.item = makeItem({ id: "2" });
+    await row.updateComplete;
+    expect(today.checked).toBe(false);
   });
 
   it("offers snoozing until before the due date", async () => {

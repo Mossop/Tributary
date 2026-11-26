@@ -137,6 +137,9 @@ export interface Item {
   modified: string;
   due: string | null;
   due_override: string | null;
+  /** The start of the day the item is queued for. From then on it's one of
+   * today's items until the queue is cleared. */
+  queued_for: string | null;
   snoozed_until: string | null;
   snoozed_forever: boolean;
   actions: QuickAction[];
@@ -233,6 +236,17 @@ export function setDue(item: Item, due: Date) {
 
 export function clearDue(item: Item) {
   return request<void>("DELETE", `${itemPath(item)}/due`);
+}
+
+/** Queues an item for the day starting at `day`. */
+export function queue(item: Item, day: Date) {
+  return request<void>("PUT", `${itemPath(item)}/queue`, {
+    day: day.toISOString(),
+  });
+}
+
+export function unqueue(item: Item) {
+  return request<void>("DELETE", `${itemPath(item)}/queue`);
 }
 
 /** Performs a quick action, resolving once the item's source has been

@@ -20,6 +20,12 @@ list, so you can see everything you need to do in one place.
 - Items can be **snoozed** until a date and time, or forever. The snoozed view
   (`/c/<context>/snoozed`) lists them and lets you unsnooze them.
 - An item's **due date can be overridden**.
+- Items can be **queued for today or tomorrow**. Today's items are shown in
+  a section above the rest of the list and stay there, even after the day
+  ends, until they're taken out of the queue (by choosing the ticked
+  Today or Tomorrow again). Items queued for tomorrow stay
+  in the main list until tomorrow, then move to today. Snoozing an item
+  takes it out of the queue.
 - Some items have **quick actions**, such as marking a Google task complete,
   done straight from the list. The item's source is refreshed afterwards.
 - Sources are polled on their own schedule, more slowly while nobody is using

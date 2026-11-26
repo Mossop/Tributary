@@ -131,6 +131,31 @@ pub async fn clear_due(
     Ok(state_changed(&ws, source, item))
 }
 
+#[derive(Deserialize)]
+pub struct QueueBody {
+    /// The start of the day to queue the item for, in the user's time zone.
+    day: DateTime<Utc>,
+}
+
+pub async fn queue_item(
+    State(ws): State<AppState>,
+    Path((source, item)): Path<(String, String)>,
+    Json(body): Json<QueueBody>,
+) -> ApiResult<StatusCode> {
+    find_item(&ws, &source, &item).await?;
+    db::set_queued_for(&ws.pool, &source, &item, Some(body.day)).await?;
+    Ok(state_changed(&ws, source, item))
+}
+
+pub async fn unqueue_item(
+    State(ws): State<AppState>,
+    Path((source, item)): Path<(String, String)>,
+) -> ApiResult<StatusCode> {
+    find_item(&ws, &source, &item).await?;
+    db::set_queued_for(&ws.pool, &source, &item, None).await?;
+    Ok(state_changed(&ws, source, item))
+}
+
 /// Performs one of an item's quick actions, then refreshes its source so the
 /// result shows straight away.
 pub async fn perform_action(

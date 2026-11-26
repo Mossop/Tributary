@@ -309,6 +309,12 @@ export class Store extends EventTarget {
     return this.mutate(api.clearDue(item));
   }
 
+  /** Queues an item for the day starting at `day`, or with null takes it
+   * out of the queue. */
+  queue(item: Item, day: Date | null) {
+    return this.mutate(day ? api.queue(item, day) : api.unqueue(item));
+  }
+
   async performAction(item: Item, action: string) {
     let key = itemKey(item);
     this.update({ busy: [...this.state.busy, key] });

@@ -58,6 +58,9 @@ pub struct Item {
     pub due: Option<DateTime<Utc>>,
     /// The user's override of the due date.
     pub due_override: Option<DateTime<Utc>>,
+    /// The start of the day the item is queued for. From then on it's one of
+    /// today's items until the queue is cleared.
+    pub queued_for: Option<DateTime<Utc>>,
     pub snoozed_until: Option<DateTime<Utc>>,
     pub snoozed_forever: bool,
     pub actions: Vec<QuickAction>,
@@ -76,6 +79,7 @@ struct ItemRow {
     modified: i64,
     due: Option<i64>,
     due_override: Option<i64>,
+    queued_for: Option<i64>,
     snoozed_until: Option<i64>,
     snoozed_forever: bool,
     actions: String,
@@ -95,6 +99,7 @@ impl From<ItemRow> for Item {
             modified: from_ms(row.modified),
             due: row.due.map(from_ms),
             due_override: row.due_override.map(from_ms),
+            queued_for: row.queued_for.map(from_ms),
             snoozed_until: row.snoozed_until.map(from_ms),
             snoozed_forever: row.snoozed_forever,
             actions: parse_actions(&row.actions),
@@ -132,7 +137,7 @@ pub async fn list_items(
     let rows: Vec<ItemRow> = sqlx::query_as(
         r#"
         SELECT i.source_id, i.item_id, i.kind, i.title, i.url, i.icon, i.description,
-               i.modified, i.due, s.due_override, s.snoozed_until,
+               i.modified, i.due, s.due_override, s.queued_for, s.snoozed_until,
                COALESCE(s.snoozed_forever, 0) AS snoozed_forever, i.actions, i.refs
         FROM items i
         LEFT JOIN item_state s ON s.source_id = i.source_id AND s.item_id = i.item_id
@@ -291,6 +296,7 @@ pub async fn source_statuses(pool: &SqlitePool) -> sqlx::Result<HashMap<String, 
 }
 
 /// Snoozes an item until the given time, or forever if `until` is `None`.
+/// This takes it out of the today/tomorrow queue.
 pub async fn set_snooze(
     pool: &SqlitePool,
     source_id: &str,
@@ -303,7 +309,8 @@ pub async fn set_snooze(
         VALUES (?1, ?2, ?3, ?4)
         ON CONFLICT (source_id, item_id) DO UPDATE SET
             snoozed_until = excluded.snoozed_until,
-            snoozed_forever = excluded.snoozed_forever
+            snoozed_forever = excluded.snoozed_forever,
+            queued_for = NULL
         "#,
     )
     .bind(source_id)
@@ -347,6 +354,30 @@ pub async fn set_due_override(
     .bind(source_id)
     .bind(item_id)
     .bind(due.map(to_ms))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Queues an item for the day starting at `day`, or with `None` takes it out
+/// of the queue.
+pub async fn set_queued_for(
+    pool: &SqlitePool,
+    source_id: &str,
+    item_id: &str,
+    day: Option<DateTime<Utc>>,
+) -> sqlx::Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO item_state (source_id, item_id, queued_for)
+        VALUES (?1, ?2, ?3)
+        ON CONFLICT (source_id, item_id) DO UPDATE SET
+            queued_for = excluded.queued_for
+        "#,
+    )
+    .bind(source_id)
+    .bind(item_id)
+    .bind(day.map(to_ms))
     .execute(pool)
     .await?;
     Ok(())
@@ -498,6 +529,58 @@ mod tests {
 
         set_due_override(&pool, "a", "2", None).await.unwrap();
         assert_eq!(ids(&pool, &["a"], Filter::Active, 1).await, ["a/1", "a/2"]);
+    }
+
+    #[tokio::test]
+    async fn queues_items() {
+        let pool = connect_in_memory().await.unwrap();
+        replace_items(&pool, "a", &[item("1", 1, None)], time(1))
+            .await
+            .unwrap();
+        let queued_for = async || {
+            list_items(&pool, &["a"], Filter::Active, time(1))
+                .await
+                .unwrap()[0]
+                .queued_for
+        };
+        assert_eq!(queued_for().await, None);
+
+        set_queued_for(&pool, "a", "1", Some(time(2)))
+            .await
+            .unwrap();
+        assert_eq!(queued_for().await, Some(time(2)));
+        // Other state is kept.
+        set_due_override(&pool, "a", "1", Some(time(5)))
+            .await
+            .unwrap();
+        assert_eq!(queued_for().await, Some(time(2)));
+
+        set_queued_for(&pool, "a", "1", None).await.unwrap();
+        assert_eq!(queued_for().await, None);
+    }
+
+    #[tokio::test]
+    async fn snoozing_clears_the_queue() {
+        let pool = connect_in_memory().await.unwrap();
+        replace_items(&pool, "a", &[item("1", 1, None)], time(1))
+            .await
+            .unwrap();
+        for until in [Some(time(5)), None] {
+            set_queued_for(&pool, "a", "1", Some(time(1)))
+                .await
+                .unwrap();
+            set_snooze(&pool, "a", "1", until).await.unwrap();
+            let snoozed = list_items(&pool, &["a"], Filter::Snoozed, time(2))
+                .await
+                .unwrap();
+            assert_eq!(snoozed[0].queued_for, None, "snoozed until {until:?}");
+            // Unsnoozing doesn't queue it again.
+            clear_snooze(&pool, "a", "1").await.unwrap();
+            let active = list_items(&pool, &["a"], Filter::Active, time(2))
+                .await
+                .unwrap();
+            assert_eq!(active[0].queued_for, None);
+        }
     }
 
     #[tokio::test]

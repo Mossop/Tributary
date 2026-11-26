@@ -14,6 +14,7 @@ export function makeItem(fields: Partial<Item> = {}): Item {
     modified: "2026-01-01T00:00:00Z",
     due: null,
     due_override: null,
+    queued_for: null,
     snoozed_until: null,
     snoozed_forever: false,
     actions: [],
