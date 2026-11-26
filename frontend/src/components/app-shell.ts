@@ -40,6 +40,11 @@ export class AppShell extends LitElement {
       margin-bottom: var(--wa-space-m);
     }
 
+    .logo {
+      width: 32px;
+      height: 32px;
+    }
+
     header h1 {
       font-size: var(--wa-font-size-xl);
       margin: 0;
@@ -240,6 +245,7 @@ export class AppShell extends LitElement {
       </header>`;
     }
     return html`<header>
+      <img class="logo" src="/tributary.svg" alt="" />
       ${this.renderContextSwitcher()}
       <span class="spacer"></span>
       ${

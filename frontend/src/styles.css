@@ -1,6 +1,39 @@
 @import "@awesome.me/webawesome/dist/styles/webawesome.css";
 @import "@awesome.me/webawesome/dist/styles/color/variants/brand.css";
 
+/* Brand and neutral scales in the logo's warm brown (hue 57). Lightness
+ * follows Web Awesome's scale; brand-70 and brand-40 are the logo's
+ * colours. */
+:root {
+  --wa-color-brand-95: oklch(96.4% 0.012 57);
+  --wa-color-brand-90: oklch(92.4% 0.02 57);
+  --wa-color-brand-80: oklch(84.6% 0.032 57);
+  --wa-color-brand-70: #c3a995;
+  --wa-color-brand-60: oklch(67% 0.042 57);
+  --wa-color-brand-50: oklch(57% 0.036 57);
+  --wa-color-brand-40: #6f5e53;
+  --wa-color-brand-30: oklch(40.6% 0.024 57);
+  --wa-color-brand-20: oklch(33.1% 0.02 57);
+  --wa-color-brand-10: oklch(24% 0.015 57);
+  --wa-color-brand-05: oklch(18.6% 0.012 57);
+  --wa-color-brand: var(--wa-color-brand-50);
+  --wa-color-brand-on: white;
+
+  --wa-color-neutral-95: oklch(96.1% 0.004 57);
+  --wa-color-neutral-90: oklch(92.2% 0.007 57);
+  --wa-color-neutral-80: oklch(83.6% 0.01 57);
+  --wa-color-neutral-70: oklch(75.2% 0.012 57);
+  --wa-color-neutral-60: oklch(66.9% 0.014 57);
+  --wa-color-neutral-50: oklch(56.4% 0.015 57);
+  --wa-color-neutral-40: oklch(46.3% 0.015 57);
+  --wa-color-neutral-30: oklch(39.4% 0.014 57);
+  --wa-color-neutral-20: oklch(32% 0.012 57);
+  --wa-color-neutral-10: oklch(23.3% 0.01 57);
+  --wa-color-neutral-05: oklch(18.3% 0.008 57);
+  --wa-color-neutral: var(--wa-color-neutral-40);
+  --wa-color-neutral-on: white;
+}
+
 :root {
   --wa-font-family-body: Roboto, system-ui, sans-serif;
   --wa-font-family-heading: Roboto, system-ui, sans-serif;

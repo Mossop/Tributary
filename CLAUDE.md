@@ -79,6 +79,10 @@ frontend in `frontend/`. See README.md for features and configuration.
   entry).
 - `icons.ts` registers Material Symbols as Web Awesome's default icon library
   (served from node_modules in dev, copied to `dist/material-symbols` on build).
+- `frontend/public/` holds the logo (`tributary.svg`, a cleaned copy of
+  `logo/tributary.svg`) and `favicon.ico` (16–64px, rendered from it with
+  Inkscape). `styles.css` overrides Web Awesome's brand and neutral colour
+  scales with the logo's warm browns.
 - Style: `let` everywhere except module-level constants (ESLint `prefer-const`
   is off for this reason); `==` unless coercion matters. Import with `.ts`
   extensions.

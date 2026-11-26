@@ -125,6 +125,7 @@ sources = [
   "frontend/tsconfig.json",
   "frontend/vite.config.ts",
   "frontend/src/**/*",
+  "frontend/public/**/*",
 ]
 
 [tasks."docker:run"]
