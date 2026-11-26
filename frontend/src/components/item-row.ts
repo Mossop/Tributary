@@ -114,6 +114,15 @@ export class ItemRow extends LitElement {
       flex: none;
       display: flex;
     }
+
+    /* wa-tag lays its content out inline with a tall line height, which
+       leaves icons on the text's baseline rather than centred on it. */
+    .tag-content {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--wa-space-2xs);
+      line-height: 1;
+    }
   `;
 
   private fire(action: ItemAction) {
@@ -143,10 +152,12 @@ export class ItemRow extends LitElement {
       variant=${overdue ? "danger" : "neutral"}
       title=${absoluteTime(due)}
     >
-      <wa-icon
-        name=${this.item.due_override ? "edit_calendar" : "event"}
-      ></wa-icon>
-      Due ${relativeTime(due, this.now)}
+      <span class="tag-content">
+        <wa-icon
+          name=${this.item.due_override ? "edit_calendar" : "event"}
+        ></wa-icon>
+        Due ${relativeTime(due, this.now)}
+      </span>
     </wa-tag>`;
   }
 
