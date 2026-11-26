@@ -88,6 +88,8 @@ export interface AccountProvider {
 export interface SourceType {
   id: string;
   name: string;
+  /** A URL, or `symbol:<name>` for a Material Symbol. */
+  icon?: string;
   fields: Field[];
   /** The times a default due date can count from, the default first. */
   due_from: FieldOption[];

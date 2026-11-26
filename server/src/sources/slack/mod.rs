@@ -74,6 +74,7 @@ pub fn source_type() -> SourceType {
             }))
         },
     )
+    .with_icon(ICON)
     .with_options(|_, _, _| {
         Box::pin(async {
             Ok(SHOW

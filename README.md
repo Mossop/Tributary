@@ -250,6 +250,9 @@ pub trait Source: Send + Sync {
 }
 ```
 
+Give the type an icon for the "Add source" menu with `SourceType::with_icon`,
+usually the same as its sources' `icon`.
+
 Default due dates can count from items' `created` and `modified` times
 (declare `SourceType::without_created` if items never have a `created`).
 To also offer a source specific time, describe it with

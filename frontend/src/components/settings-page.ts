@@ -15,7 +15,11 @@ import type {
   SourceType,
 } from "../api.ts";
 import { parseIcon } from "../icons.ts";
-import { connectError, sourcesUsing } from "../settings-form.ts";
+import {
+  connectError,
+  missingAccount,
+  sourcesUsing,
+} from "../settings-form.ts";
 import type { ConfirmDialog } from "./confirm-dialog.ts";
 import "./confirm-dialog.ts";
 import type { TokenAccountDialog } from "./token-account-dialog.ts";
@@ -23,7 +27,7 @@ import "./token-account-dialog.ts";
 import type { Store } from "../store.ts";
 import type { ContextDialog } from "./context-dialog.ts";
 import "./context-dialog.ts";
-import type { SourceDialog } from "./source-dialog.ts";
+import type { AddAccount, SourceDialog } from "./source-dialog.ts";
 import "./source-dialog.ts";
 
 /** The host of a URL, or the URL itself if it isn't valid. */
@@ -33,6 +37,47 @@ function hostOf(url: string): string {
   } catch {
     return url;
   }
+}
+
+/** A source dialog to reopen after connecting an account takes the browser
+ * away (e.g. to Google): adding a source of `type`, or editing `source`. */
+type Resume = { type: string } | { source: string };
+
+const RESUME_KEY = "tributary:resume-source";
+
+function saveResume(resume: Resume) {
+  try {
+    sessionStorage.setItem(RESUME_KEY, JSON.stringify(resume));
+  } catch {
+    // Without storage the dialog just isn't reopened.
+  }
+}
+
+function takeResume(): Resume | null {
+  try {
+    let saved = sessionStorage.getItem(RESUME_KEY);
+    sessionStorage.removeItem(RESUME_KEY);
+    return saved ? (JSON.parse(saved) as Resume) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** An icon (a URL, or `symbol:<name>`), optionally in a slot. */
+function renderIcon(icon: string, slot?: string) {
+  let parsed = parseIcon(icon);
+  return "symbol" in parsed
+    ? html`<wa-icon
+        class="icon"
+        slot=${slot ?? nothing}
+        name=${parsed.symbol}
+      ></wa-icon>`
+    : html`<img
+        class="icon"
+        slot=${slot ?? nothing}
+        src=${parsed.url}
+        alt=""
+      />`;
 }
 
 /** Manages contexts, accounts and sources. */
@@ -45,6 +90,8 @@ export class SettingsPage extends LitElement {
   @property({ attribute: false }) accounts: Account[] = [];
   @property({ attribute: false }) providers: AccountProvider[] = [];
   @state() private error: string | null = null;
+  /** A source dialog to reopen once settings have loaded. */
+  private resume: Resume | null = null;
   @query("context-dialog") private contextDialog!: ContextDialog;
   @query("source-dialog") private sourceDialog!: SourceDialog;
   @query("confirm-dialog") private confirmDialog!: ConfirmDialog;
@@ -92,6 +139,12 @@ export class SettingsPage extends LitElement {
       color: var(--wa-color-text-quiet);
     }
 
+    wa-dropdown-item .icon {
+      width: 20px;
+      height: 20px;
+      font-size: 20px;
+    }
+
     .main {
       flex: 1;
       min-width: 0;
@@ -125,9 +178,34 @@ export class SettingsPage extends LitElement {
     super.connectedCallback();
     // Connecting an account comes back here with any error in the URL.
     let error = connectError(location.search);
+    let resume = takeResume();
     if (error) {
       this.error = error;
       history.replaceState(history.state, "", location.pathname);
+    } else {
+      this.resume = resume;
+    }
+  }
+
+  updated() {
+    // Reopen the source dialog left to connect an account, once what it
+    // needs has loaded.
+    let resume = this.resume;
+    if (!resume || this.sourceTypes.length == 0) {
+      return;
+    }
+    if ("type" in resume) {
+      let type = this.sourceTypes.find((t) => t.id == resume.type);
+      this.resume = null;
+      if (type) {
+        this.openAddSource(type, this.accounts);
+      }
+    } else if (this.sources.length > 0) {
+      let source = this.sources.find((s) => s.id == resume.source);
+      this.resume = null;
+      if (source) {
+        this.editSource(source);
+      }
     }
   }
 
@@ -165,16 +243,45 @@ export class SettingsPage extends LitElement {
     );
   }
 
-  /** Adds an account with `provider`, or reconnects `account`. */
-  private connect(provider: string, account?: Account) {
+  /**
+   * Adds an account with `provider`, or reconnects `account`. Token
+   * accounts are entered here and passed to `added`; other accounts are
+   * connected by sending the browser to the provider, which comes back to
+   * settings, reopening `resume` if given.
+   */
+  private connect(
+    provider: string,
+    account?: Account,
+    added?: (account: Account) => void,
+    resume?: Resume,
+  ) {
     let info = this.providers.find((p) => p.id == provider);
-    if (info?.connect == "token") {
-      this.tokenDialog.show(info, account ?? null, (settings) =>
-        this.apply(() => api.addTokenAccount(provider, settings)),
+    if (!info?.configured) {
+      this.confirmDialog.explain(
+        "Can't add an account",
+        `${info?.name ?? provider} accounts need setting up in the server configuration first.`,
       );
+      return;
+    }
+    if (info.connect == "token") {
+      this.tokenDialog.show(info, account ?? null, async (settings) => {
+        let saved = await api.addTokenAccount(provider, settings);
+        await this.store.loadSettings();
+        added?.(saved);
+      });
     } else {
+      if (resume) {
+        saveResume(resume);
+      }
       location.assign(api.connectUrl(provider, account?.id));
     }
+  }
+
+  /** Adding an account from a source dialog, which reopens `resume` if the
+   * browser has to leave the page. */
+  private addAccountFor(resume: Resume): AddAccount {
+    return (provider, added) =>
+      this.connect(provider, undefined, added, resume);
   }
 
   private deleteAccount(account: Account) {
@@ -198,14 +305,35 @@ export class SettingsPage extends LitElement {
     );
   }
 
+  /** Adds a source of `type`, first adding the account it needs if there
+   * isn't one. */
   private addSource(type: SourceType) {
+    let provider = missingAccount(type, this.accounts);
+    if (provider) {
+      this.connect(
+        provider,
+        undefined,
+        (account) =>
+          this.openAddSource(type, [
+            ...this.accounts.filter((a) => a.id != account.id),
+            account,
+          ]),
+        { type: type.id },
+      );
+      return;
+    }
+    this.openAddSource(type, this.accounts);
+  }
+
+  private openAddSource(type: SourceType, accounts: Account[]) {
     this.sourceDialog.show(
       type,
       null,
       this.contexts,
-      this.accounts,
+      accounts,
       this.store.homeRoute().context,
       (settings) => this.apply(() => api.createSource(settings)),
+      this.addAccountFor({ type: type.id }),
     );
   }
 
@@ -222,6 +350,7 @@ export class SettingsPage extends LitElement {
       this.accounts,
       null,
       (settings) => this.apply(() => api.updateSource(source.id, settings)),
+      this.addAccountFor({ source: source.id }),
     );
   }
 
@@ -289,7 +418,7 @@ export class SettingsPage extends LitElement {
             value=${provider.id}
             ?disabled=${!provider.configured}
           >
-            ${provider.name}
+            ${renderIcon(provider.icon, "icon")} ${provider.name}
             ${
               provider.configured
                 ? nothing
@@ -303,13 +432,7 @@ export class SettingsPage extends LitElement {
   }
 
   private renderAccountIcon(provider: AccountProvider | undefined) {
-    if (!provider) {
-      return html`<wa-icon class="icon" name="account_circle"></wa-icon>`;
-    }
-    let icon = parseIcon(provider.icon);
-    return "symbol" in icon
-      ? html`<wa-icon class="icon" name=${icon.symbol}></wa-icon>`
-      : html`<img class="icon" src=${icon.url} alt="" />`;
+    return renderIcon(provider?.icon ?? "symbol:account_circle");
   }
 
   private renderAccounts() {
@@ -369,13 +492,7 @@ export class SettingsPage extends LitElement {
   }
 
   private renderSourceIcon(source: Source) {
-    if (!source.icon) {
-      return html`<wa-icon class="icon" name="error"></wa-icon>`;
-    }
-    let icon = parseIcon(source.icon);
-    return "symbol" in icon
-      ? html`<wa-icon class="icon" name=${icon.symbol}></wa-icon>`
-      : html`<img class="icon" src=${icon.url} alt="" />`;
+    return renderIcon(source.icon || "symbol:error");
   }
 
   private renderSources() {
@@ -401,9 +518,9 @@ export class SettingsPage extends LitElement {
           </wa-button>
           ${this.sourceTypes.map(
             (type) =>
-              html`<wa-dropdown-item value=${type.id}
-                >${type.name}</wa-dropdown-item
-              >`,
+              html`<wa-dropdown-item value=${type.id}>
+                ${renderIcon(type.icon ?? "symbol:inbox", "icon")} ${type.name}
+              </wa-dropdown-item>`,
           )}
         </wa-dropdown>
       </div>

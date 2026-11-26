@@ -210,6 +210,9 @@ pub struct SourceType {
     /// Whether the type is offered in the settings UI.
     pub listed: bool,
     pub fields: Vec<Field>,
+    /// A URL, or `symbol:<name>` for a Material Symbol, shown when choosing
+    /// a type. Usually the same as its sources' icon.
+    pub icon: Option<&'static str>,
     /// OAuth scopes needed from the accounts of each provider.
     pub scopes: Vec<(&'static str, &'static str)>,
     /// Describes items' `due_from`, e.g. "Request made", for types that set
@@ -236,6 +239,7 @@ impl SourceType {
             name: name.to_string(),
             listed: true,
             fields,
+            icon: None,
             scopes: Vec::new(),
             requested: None,
             has_created: true,
@@ -246,6 +250,11 @@ impl SourceType {
 
     pub fn unlisted(mut self) -> Self {
         self.listed = false;
+        self
+    }
+
+    pub fn with_icon(mut self, icon: &'static str) -> Self {
+        self.icon = Some(icon);
         self
     }
 

@@ -7,6 +7,7 @@ import {
   defaultAccounts,
   dueFrom,
   initialValues,
+  missingAccount,
   slugify,
   sourceSettings,
   sourcesUsing,
@@ -168,6 +169,13 @@ describe("accounts", () => {
     let accounts = [account("a"), account("b", "other")];
     expect(accountsFor("google", accounts)).toEqual([account("a")]);
     expect(accountsFor(null, accounts)).toEqual([]);
+  });
+
+  it("finds an account a type needs but doesn't have", () => {
+    expect(missingAccount(tasks, [])).toBe("google");
+    expect(missingAccount(tasks, [account("a", "other")])).toBe("google");
+    expect(missingAccount(tasks, [account("a")])).toBeNull();
+    expect(missingAccount(githubType, [])).toBeNull();
   });
 
   it("chooses the only account", () => {

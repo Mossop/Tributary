@@ -72,6 +72,7 @@ pub fn source_type() -> SourceType {
             Ok(Arc::new(GithubSource::new(context, config)?))
         },
     )
+    .with_icon(ICON)
     .with_requested("Review requested (pull requests)")
 }
 

@@ -131,6 +131,9 @@ pub async fn delete_context(
 pub struct SourceTypeInfo {
     id: String,
     name: String,
+    /// A URL, or `symbol:<name>` for a Material Symbol.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<&'static str>,
     fields: Vec<Field>,
     /// The times a default due date can count from, the default first.
     due_from: Vec<FieldOption>,
@@ -143,6 +146,7 @@ pub async fn list_source_types(State(ws): State<AppState>) -> Json<Vec<SourceTyp
             .map(|t| SourceTypeInfo {
                 id: t.id.clone(),
                 name: t.name.clone(),
+                icon: t.icon,
                 fields: t.fields.clone(),
                 due_from: t
                     .due_from_choices()

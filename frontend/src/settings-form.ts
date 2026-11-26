@@ -118,6 +118,24 @@ export function accountsFor(
   return accounts.filter((a) => a.provider == provider);
 }
 
+/** The provider of an account `type` needs but none of `accounts` is for,
+ * if any, so one can be added before the source. */
+export function missingAccount(
+  type: SourceType,
+  accounts: Account[],
+): string | null {
+  for (let field of type.fields) {
+    if (
+      field.kind == "account" &&
+      field.provider &&
+      accountsFor(field.provider, accounts).length == 0
+    ) {
+      return field.provider;
+    }
+  }
+  return null;
+}
+
 /** Chooses the account for empty account fields when there is only one
  * to choose from. */
 export function defaultAccounts(

@@ -241,6 +241,7 @@ async fn lists_offered_source_types() {
         ]
     );
     assert_eq!(types[0]["name"], "GitHub search");
+    assert_eq!(types[0]["icon"], "https://github.com/favicon.ico");
     assert_eq!(
         types[0]["fields"][0],
         json!({

@@ -4,6 +4,7 @@ import "@awesome.me/webawesome/dist/components/button/button.js";
 import "@awesome.me/webawesome/dist/components/callout/callout.js";
 import "@awesome.me/webawesome/dist/components/checkbox/checkbox.js";
 import "@awesome.me/webawesome/dist/components/dialog/dialog.js";
+import "@awesome.me/webawesome/dist/components/divider/divider.js";
 import "@awesome.me/webawesome/dist/components/input/input.js";
 import "@awesome.me/webawesome/dist/components/option/option.js";
 import "@awesome.me/webawesome/dist/components/select/select.js";
@@ -36,6 +37,16 @@ interface Options {
 
 type Save = (settings: SourceSettings) => Promise<void>;
 
+/** Starts adding a `provider` account, calling `added` with it once it's
+ * added. (Accounts connected by redirecting elsewhere never call it.) */
+export type AddAccount = (
+  provider: string,
+  added: (account: Account) => void,
+) => void;
+
+/** The value of the account select's "Add an account…" option. */
+const ADD_ACCOUNT = "+add";
+
 /** Adds or edits a source. The type specific fields come from the source
  * type's field list. */
 @customElement("source-dialog")
@@ -50,6 +61,7 @@ export class SourceDialog extends LitElement {
   @state() private error: string | null = null;
   @state() private saving = false;
   private save: Save = async () => {};
+  private addAccount: AddAccount | null = null;
   private optionsSequence = 0;
 
   static styles = css`
@@ -83,7 +95,8 @@ export class SourceDialog extends LitElement {
   /**
    * Opens the dialog to add a source of `type`, or to edit `source`.
    * `save` is called with the settings; if it throws, its message is shown
-   * and the dialog stays open.
+   * and the dialog stays open. With `addAccount`, account fields offer to
+   * add an account.
    */
   show(
     type: SourceType,
@@ -92,7 +105,9 @@ export class SourceDialog extends LitElement {
     accounts: Account[],
     defaultContext: string | null,
     save: Save,
+    addAccount: AddAccount | null = null,
   ) {
+    this.addAccount = addAccount;
     this.type = type;
     this.source = source;
     this.contexts = contexts;
@@ -188,25 +203,57 @@ export class SourceDialog extends LitElement {
     }
   }
 
+  /** Adds a `field.provider` account, then chooses it for `field`. */
+  private startAddingAccount(field: Field) {
+    let provider = field.provider;
+    if (!this.addAccount || !provider) {
+      return;
+    }
+    this.addAccount(provider, (account) => {
+      this.accounts = [
+        ...this.accounts.filter((a) => a.id != account.id),
+        account,
+      ];
+      this.setAccount(field.key, account.id);
+    });
+  }
+
   private renderAccountField(field: Field) {
     let accounts = accountsFor(field.provider, this.accounts);
+    let canAdd = this.addAccount != null && field.provider != null;
     let hint =
-      accounts.length == 0
+      accounts.length == 0 && !canAdd
         ? "Connect an account in the Accounts section of settings first."
         : (field.help ?? "");
+    let value = this.values.fields[field.key] ?? "";
+    let onChange = (e: Event) => {
+      let select = e.target as HTMLInputElement;
+      if (select.value == ADD_ACCOUNT) {
+        // Not a choice: keep the current one until the account is added.
+        select.value = value;
+        this.startAddingAccount(field);
+      } else {
+        this.setAccount(field.key, select.value);
+      }
+    };
     return html`<wa-select
       label=${field.label}
       hint=${hint}
       ?required=${field.required}
-      ?disabled=${accounts.length == 0}
-      .value=${this.values.fields[field.key] ?? ""}
-      @change=${(e: Event) =>
-        this.setAccount(field.key, (e.target as HTMLInputElement).value)}
+      ?disabled=${accounts.length == 0 && !canAdd}
+      .value=${value}
+      @change=${onChange}
     >
       ${accounts.map(
         (account) =>
           html`<wa-option value=${account.id}>${account.name}</wa-option>`,
       )}
+      ${
+        canAdd
+          ? html`${accounts.length > 0 ? html`<wa-divider></wa-divider>` : nothing}
+              <wa-option value=${ADD_ACCOUNT}>Add an account…</wa-option>`
+          : nothing
+      }
     </wa-select>`;
   }
 

@@ -57,6 +57,7 @@ pub fn source_type() -> SourceType {
             Ok(Arc::new(GoogleTasksSource::new(context, config)?))
         },
     )
+    .with_icon(ICON)
     .with_scope(GOOGLE, SCOPE)
     .without_created()
     .with_options(|_, config, context| {

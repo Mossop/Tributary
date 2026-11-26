@@ -86,6 +86,7 @@ pub fn source_type() -> SourceType {
             Ok(Arc::new(BugzillaSource::new(context, account, show)?))
         },
     )
+    .with_icon(ICON)
     .with_requested("Request made (requests)")
     .with_options(|_, config, context| {
         Box::pin(async move {
